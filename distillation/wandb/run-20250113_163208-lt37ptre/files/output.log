@@ -25,4 +25,6 @@ Added 44 parameters from scalekd_last loss
 990.041   Total estimated model params size (MB)
 232       Modules in train mode
 212       Modules in eval mode
-Epoch 0:  37%|██████████                 | 678/1830 [05:49<09:53,  1.94it/s, v_num=100]                                                                                    
+Epoch 0:  53%|████████████████████████████████████▏                                | 961/1830 [08:14<07:27,  1.94it/s, v_num=100]                                          
+
+Detected KeyboardInterrupt, attempting graceful shutdown ...

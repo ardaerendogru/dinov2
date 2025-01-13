@@ -82,12 +82,12 @@ class DistillationModule(L.LightningModule):
             self.losses[name] = loss_fn  # This automatically registers the module
             self.loss_weights[name] = weight
 
-        # Debug: Print all registered modules and their parameters
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Module):
-                params = [p for p in module.parameters() if p.requires_grad]
-                if params:
-                    print(f"Module {name} has {len(params)} trainable parameters")
+        # # Debug: Print all registered modules and their parameters
+        # for name, module in self.named_modules():
+        #     if isinstance(module, nn.Module):
+        #         params = [p for p in module.parameters() if p.requires_grad]
+        #         if params:
+        #             print(f"Module {name} has {len(params)} trainable parameters")
 
     def _forward_specific_stage(self, feat):
         """Forward through specific stages of teacher model."""
@@ -254,7 +254,7 @@ class DistillationModule(L.LightningModule):
                     'params': loss_params,
                     'name': f'loss_{loss_name}'
                 })
-                print(f"Added {len(loss_params)} parameters from {loss_name} loss")
+                # print(f"Added {len(loss_params)} parameters from {loss_name} loss")
 
         optimizer = getattr(torch.optim, self.cfg['optimizer']['type'])(
             param_groups,

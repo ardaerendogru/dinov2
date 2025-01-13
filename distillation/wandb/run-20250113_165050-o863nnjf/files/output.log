@@ -1,0 +1,83 @@
+Starting training from scratch.
+Initializing distributed: GLOBAL_RANK: 1, MEMBER: 2/2
+LOCAL_RANK: 1 - CUDA_VISIBLE_DEVICES: [0,1]
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
+/storage/disk0/arda/dinov2/distillation/train/distillation_module.py:194: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(), torch.no_grad():
