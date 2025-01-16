@@ -18,9 +18,9 @@ student:
 
 
 teacher:
-  model_name: dinov2_vitb14
+  model_name: dinov2_vitl14
   teacher_key: feature_map
-  out_dim: 768
+  out_dim: 1024
   n_patches: 256
 
 
@@ -58,10 +58,10 @@ loss:
       kwargs:
         alpha: [0.08, 0.06]
         student_dims: 1024
-        teacher_dims: 768
+        teacher_dims: 1024
         query_hw: [16, 16]
         pos_hw: [16, 16]
-        pos_dims: 768
+        pos_dims: 1024
         window_shapes: [1, 1]
         self_query: true
         softmax_scale: [5.0, 5.0]
@@ -74,15 +74,15 @@ loss:
       kwargs:
         alpha: [0.08, 0.06]
         student_dims: 2048
-        teacher_dims: 768
+        teacher_dims: 1024
         query_hw: [16, 16]
         pos_hw: [16, 16]
-        pos_dims: 768
+        pos_dims: 1024
         window_shapes: [1, 1]
         self_query: true
         softmax_scale: [5.0, 5.0]
         dis_freq: high
-        num_heads: 24
+        num_heads: 32
         name: scalekd_last
         use_this: true
 
@@ -96,7 +96,7 @@ loss:
 
 train:
   name: resnet50
-  max_epochs: 30
+  max_epochs: 60
   accelerator: gpu
   devices: [0,1]
   num_nodes: 1
@@ -104,7 +104,7 @@ train:
   # resume_from_checkpoint: "/path/to/your/checkpoint.ckpt"  # Add this line
 data_loader:
   data_dir: /home/arda/data/train2017
-  batch_size: 32
+  batch_size: 64
   num_workers: 8
   
 

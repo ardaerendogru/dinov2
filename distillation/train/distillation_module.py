@@ -36,12 +36,15 @@ class DistillationModule(L.LightningModule):
 
         self._initialize_models(student, teacher)
         self._initialize_loss()
-
+        # self.cls_token = nn.Parameter(torch.zeros(1, 1, self.cfg.teacher.out_dim))
+    # Initialize with small random values
+        # nn.init.trunc_normal_(self.cls_token, std=0.02)
     def _initialize_models(self, student, teacher):
         """Initialize models with gradient verification."""
         self.student = student
         self.teacher = teacher
         self.register_module('student', self.student)
+        self.register_module('teacher', self.teacher)
 
 
 
@@ -81,7 +84,7 @@ class DistillationModule(L.LightningModule):
             loss_fn = LOSS_REGISTRY[loss_type](**kwargs)
             self.losses[name] = loss_fn  # This automatically registers the module
             self.loss_weights[name] = weight
-
+        self.register_module('losses', self.losses)
         # # Debug: Print all registered modules and their parameters
         # for name, module in self.named_modules():
         #     if isinstance(module, nn.Module):
@@ -90,21 +93,13 @@ class DistillationModule(L.LightningModule):
         #             print(f"Module {name} has {len(params)} trainable parameters")
 
     def _forward_specific_stage(self, feat):
+        #AVG of patch tokens
         """Forward through specific stages of teacher model."""
-        B = feat.shape[0]
-        cls_tokens = self.teacher.model.cls_token.expand(B, -1, -1)
-        feat = torch.cat((cls_tokens, feat), dim=1)
-
         n_total_blocks = len(self.teacher.model.blocks)
         target_block = int(n_total_blocks/4*3)
-
-        # Use torch.inference_mode() for better performance
-            # Forward through remaining blocks
         for i in range(target_block, n_total_blocks):
             feat = self.teacher.model.blocks[i](feat)
-
-
-        return feat[:,1:,:]
+        return feat
 
     def _compute_losses(self, student_features_s3, student_features, teacher_features, *args, **kwargs):
         """Compute compound loss."""
@@ -119,17 +114,18 @@ class DistillationModule(L.LightningModule):
         
         N,C,H,W = teacher_features.shape
         feat_S_s3_spat = scalekd_n_loss.project_feat_spat(student_features_s3, query=None)
-        feat_S_s3_freq = scalekd_n_loss.project_feat_freq(student_features_s3, query=None)
-
         feat_S_s3_spat = self._forward_specific_stage(feat_S_s3_spat)
+        feat_S_s3_spat = feat_S_s3_spat
+        feat_S_s3_freq = scalekd_n_loss.project_feat_freq(student_features_s3, query=None)
         feat_S_s3_freq = self._forward_specific_stage(feat_S_s3_freq)
-        feat_S_s3_spat_query, feat_S_s3_freq_query = feat_S_s3_spat, feat_S_s3_freq
+        feat_S_s3_freq = feat_S_s3_freq
+
         
         scalekd_n_spat = scalekd_n_loss.get_spat_loss(feat_S_s3_spat, teacher_features)
         scalekd_n_freq = scalekd_n_loss.get_freq_loss(feat_S_s3_freq, teacher_features)
         scalekd_last_dict = scalekd_last_loss(student_features, teacher_features, 
-                                            query_s=feat_S_s3_spat_query, 
-                                            query_f=feat_S_s3_freq_query)
+                                            query_s=feat_S_s3_spat, 
+                                            query_f=None)
 
         # Add ScaleKD losses to total loss and loss dict
         total_loss += (scalekd_n_spat[0] + scalekd_n_freq) * scalekd_n_weight
