@@ -138,10 +138,13 @@ class AttentionProjector(nn.Module):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, student_dims, hw_dims[0], hw_dims[1]), requires_grad=True)
         self.pos_attention = WindowMultiheadPosAttention(teacher_dims, num_heads=num_heads, input_dims=student_dims, pos_dims=pos_dims, window_shapes=window_shapes, softmax_scale=softmax_scale)
-        self.ffn = nn.Sequential(
-            nn.Linear(teacher_dims, teacher_dims * 4),
-            nn.GELU(),
-            nn.Linear(teacher_dims * 4, teacher_dims)
+        self.ffn = FFN(
+            embed_dims=teacher_dims,
+            feedforward_channels=teacher_dims * 4,
+            num_fcs=2,
+            act_cfg=dict(type='ReLU', inplace=True),
+            dropout=0.0,
+            add_residual=True
         )
 
         self.norm = nn.LayerNorm([teacher_dims])
@@ -356,3 +359,46 @@ class DCT():
         X1 = self.inverse_transform(x)
         X2 = self.inverse_transform(X1.transpose(-1, -2))
         return X2.transpose(-1, -2)
+    
+
+class FFN(nn.Module):
+    """Implements feed-forward networks (FFNs) with residual connection."""
+    def __init__(self,
+                 embed_dims,
+                 feedforward_channels,
+                 num_fcs=2,
+                 act_cfg=dict(type='ReLU', inplace=True),
+                 dropout=0.0,
+                 add_residual=True):
+        super(FFN, self).__init__()
+        assert num_fcs >= 2, 'num_fcs should be no less ' \
+            f'than 2. got {num_fcs}.'
+        self.embed_dims = embed_dims
+        self.feedforward_channels = feedforward_channels
+        self.num_fcs = num_fcs
+        self.act_cfg = act_cfg
+        self.dropout = dropout
+        self.activate = nn.ReLU(inplace=True)  # Simplified activation for this case
+
+        layers = nn.ModuleList()
+        in_channels = embed_dims
+        for _ in range(num_fcs - 1):
+            layers.append(
+                nn.Sequential(
+                    nn.Linear(in_channels, feedforward_channels), 
+                    self.activate,
+                    nn.Dropout(dropout)))
+            in_channels = feedforward_channels
+        layers.append(nn.Linear(feedforward_channels, embed_dims))
+        self.layers = nn.Sequential(*layers)
+        self.dropout = nn.Dropout(dropout)
+        self.add_residual = add_residual
+
+    def forward(self, x, residual=None):
+        """Forward function for `FFN`."""
+        out = self.layers(x)
+        if not self.add_residual:
+            return out
+        if residual is None:
+            residual = x
+        return residual + self.dropout(out)

@@ -112,20 +112,19 @@ class DistillationModule(L.LightningModule):
         scalekd_n_weight = self.loss_weights['scalekd_n']
         scalekd_last_weight = self.loss_weights['scalekd_last']
         
-        N,C,H,W = teacher_features.shape
+        # N,C,H,W = teacher_features.shape
         feat_S_s3_spat = scalekd_n_loss.project_feat_spat(student_features_s3, query=None)
         feat_S_s3_spat = self._forward_specific_stage(feat_S_s3_spat)
-        feat_S_s3_spat = feat_S_s3_spat
+
         feat_S_s3_freq = scalekd_n_loss.project_feat_freq(student_features_s3, query=None)
         feat_S_s3_freq = self._forward_specific_stage(feat_S_s3_freq)
-        feat_S_s3_freq = feat_S_s3_freq
 
         
         scalekd_n_spat = scalekd_n_loss.get_spat_loss(feat_S_s3_spat, teacher_features)
         scalekd_n_freq = scalekd_n_loss.get_freq_loss(feat_S_s3_freq, teacher_features)
         scalekd_last_dict = scalekd_last_loss(student_features, teacher_features, 
                                             query_s=feat_S_s3_spat, 
-                                            query_f=None)
+                                            query_f=feat_S_s3_freq)
 
         # Add ScaleKD losses to total loss and loss dict
         total_loss += (scalekd_n_spat[0] + scalekd_n_freq) * scalekd_n_weight

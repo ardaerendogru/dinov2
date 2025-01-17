@@ -96,7 +96,7 @@ loss:
 
 train:
   name: resnet50
-  max_epochs: 60
+  max_epochs: 30
   accelerator: gpu
   devices: [0,1]
   num_nodes: 1
