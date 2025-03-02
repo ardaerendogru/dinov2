@@ -648,6 +648,51 @@ class ResNet(nn.Module):
             if "linear" in self._out_features:
                 outputs["linear"] = x
         return outputs
+        
+    def forward_specific_stage(self, x, start_layer="stem"):
+            """
+            Forward the ResNet model starting from a specific layer.
+
+            Args:
+                x (Tensor): Input tensor.
+                    - If start_layer == "stem", x is expected to be a raw image tensor of shape (N, C, H, W).
+                    - Otherwise, x is assumed to be the output of the module immediately preceding the start_layer.
+                start_layer (str): Specifies the layer from which to begin the forward pass.
+                    Must be one of:
+                        "stem" - to start with the initial stem,
+                        any of the stage names defined in self.stage_names (e.g., "res2", "res3", "res4", "res5"),
+                        "linear" - to apply the classification head on a feature map.
+                        
+            Returns:
+                Tensor: The output computed from the specified starting layer.
+            """
+            outputs = {}
+            if start_layer == "stem":
+                # If starting from the very beginning, run the stem.
+                x = self.stem(x)
+                start_idx = 0
+            elif start_layer in self.stage_names:
+                # If starting at one of the ResNet stages, assume x is the input to that stage.
+                start_idx = self.stage_names.index(start_layer)
+            else:
+                raise ValueError(
+                    f"Invalid start_layer: {start_layer}. Must be one of 'stem', {self.stage_names} or 'linear'."
+                )
+
+            # Forward through all stages starting at the specified stage.
+            for name, stage in zip(self.stage_names[start_idx:],self.stages[start_idx:]):
+                x = stage(x)
+                if name in self._out_features:
+                    outputs[name] = x
+            # If the model has classification head, apply average pooling and linear layer.
+            if self.num_classes is not None:
+                x = self.avgpool(x)
+                x = torch.flatten(x, 1)
+                x = self.linear(x)
+                if "linear" in self._out_features:
+                    outputs["linear"] = x
+            return outputs
+
 
     def freeze(self, freeze_at=0):
         """

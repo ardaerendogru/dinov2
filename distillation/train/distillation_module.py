@@ -33,12 +33,10 @@ class DistillationModule(L.LightningModule):
         
         self.cfg = cfg
         self.save_hyperparameters(cfg)
-
         self._initialize_models(student, teacher)
         self._initialize_loss()
-        # self.cls_token = nn.Parameter(torch.zeros(1, 1, self.cfg.teacher.out_dim))
-    # Initialize with small random values
-        # nn.init.trunc_normal_(self.cls_token, std=0.02)
+        
+        self.loss_mse = nn.MSELoss(reduction='sum')
     def _initialize_models(self, student, teacher):
         """Initialize models with gradient verification."""
         self.student = student
@@ -92,43 +90,55 @@ class DistillationModule(L.LightningModule):
         #         if params:
         #             print(f"Module {name} has {len(params)} trainable parameters")
 
-    def _forward_specific_stage(self, feat):
+    def _forward_specific_stage(self, feat, percentage):
         #AVG of patch tokens
         """Forward through specific stages of teacher model."""
         n_total_blocks = len(self.teacher.model.blocks)
-        target_block = int(n_total_blocks/4*3)
+        target_block = int(n_total_blocks*percentage)
         for i in range(target_block, n_total_blocks):
             feat = self.teacher.model.blocks[i](feat)
         return feat
 
-    def _compute_losses(self, student_features_s3, student_features, teacher_features, *args, **kwargs):
-        """Compute compound loss."""
+    def _compute_losses(self, features, *args, **kwargs):
+        """Compute compound loss with affinity map loss."""
         total_loss = 0
         loss_dict = {}
-        
-        # Handle ScaleKD losses
+
         scalekd_n_loss = self.losses['scalekd_n']
         scalekd_last_loss = self.losses['scalekd_last']
         scalekd_n_weight = self.loss_weights['scalekd_n']
         scalekd_last_weight = self.loss_weights['scalekd_last']
-        
-        # N,C,H,W = teacher_features.shape
-        feat_S_s3_spat = scalekd_n_loss.project_feat_spat(student_features_s3, query=None)
-        feat_S_s3_spat = self._forward_specific_stage(feat_S_s3_spat)
 
-        feat_S_s3_freq = scalekd_n_loss.project_feat_freq(student_features_s3, query=None)
-        feat_S_s3_freq = self._forward_specific_stage(feat_S_s3_freq)
+        # Project student features and forward through teacher stages
+        feat_S_s3_spat = scalekd_n_loss.project_feat_spat(features['student']['res4'], query=None)
+        feat_S_s3_spat = self._forward_specific_stage(feat_S_s3_spat, 0.75)
 
-        
-        scalekd_n_spat = scalekd_n_loss.get_spat_loss(feat_S_s3_spat, teacher_features)
-        scalekd_n_freq = scalekd_n_loss.get_freq_loss(feat_S_s3_freq, teacher_features)
-        scalekd_last_dict = scalekd_last_loss(student_features, teacher_features, 
+        feat_S_s3_freq = scalekd_n_loss.project_feat_freq(features['student']['res4'], query=None)
+        feat_S_s3_freq = self._forward_specific_stage(feat_S_s3_freq, 0.75)
+
+        # Existing ScaleKD losses
+        scalekd_n_spat = scalekd_n_loss.get_spat_loss(feat_S_s3_spat, features['teacher'])
+        scalekd_n_freq = scalekd_n_loss.get_freq_loss(feat_S_s3_freq, features['teacher'])
+        scalekd_last_dict = scalekd_last_loss(features['student']['res5'], features['teacher'], 
                                             query_s=feat_S_s3_spat, 
                                             query_f=feat_S_s3_freq)
 
-        # Add ScaleKD losses to total loss and loss dict
+        # Compute affinity maps
+        N,C,H,W = features['teacher'].shape
+        scalekd_last_spat_feat = scalekd_last_loss.project_feat_spat(features['student']['res5'], query = feat_S_s3_spat).permute(0, 2, 1).contiguous().view(N, C, H, W)
+        teacher_affinity = scalekd_n_loss._compute_affinity_map(features['teacher'])
+        student_affinity = scalekd_n_loss._compute_affinity_map(scalekd_last_spat_feat)
+
+        # Compute affinity loss (e.g., MSE)
+        affinity_loss = self.loss_mse(student_affinity, teacher_affinity)/scalekd_last_spat_feat.shape[0]
+        affinity_weight = 15  # Configurable via cfg.loss.losses
+
+        # Update total loss
         total_loss += (scalekd_n_spat[0] + scalekd_n_freq) * scalekd_n_weight
         total_loss += scalekd_last_dict['loss'] * scalekd_last_weight
+        total_loss += affinity_loss * affinity_weight
+
+        # Update loss dictionary
         loss_dict['loss_scalekd_n_spat'] = scalekd_n_spat[0] * scalekd_n_weight
         loss_dict['loss_scalekd_n_freq'] = scalekd_n_freq * scalekd_n_weight
         loss_dict['loss_scalekd_n_similarity'] = scalekd_n_spat[1] * scalekd_n_weight
@@ -136,25 +146,7 @@ class DistillationModule(L.LightningModule):
         loss_dict['loss_scalekd_last_similarity'] = scalekd_last_dict['cosine_similarity'] * scalekd_last_weight
         loss_dict['loss_scalekd_last_spatial_loss'] = scalekd_last_dict['spatial_loss'] * scalekd_last_weight
         loss_dict['loss_scalekd_last_frequency_loss'] = scalekd_last_dict['frequency_loss'] * scalekd_last_weight
-
-        # Handle other losses
-        for name, loss_fn in self.losses.items():
-            if name not in ['scalekd_n', 'scalekd_last']:  # Skip ScaleKD losses as they're already processed
-                weight = self.loss_weights[name]
-                curr_loss = loss_fn(student_features, teacher_features, *args, **kwargs)
-                
-                if isinstance(curr_loss, dict):
-                    for k, v in curr_loss.items():
-                        if k == 'loss':
-                            weighted_loss = v * weight
-                            total_loss += weighted_loss
-                            loss_dict[f'loss_{name}'] = weighted_loss
-                        else:
-                            loss_dict[f'{name}_{k}'] = v
-                else:
-                    weighted_loss = curr_loss * weight
-                    total_loss += weighted_loss
-                    loss_dict[f'loss_{name}'] = weighted_loss
+        loss_dict['loss_affinity'] = affinity_loss * affinity_weight
 
         loss_dict['loss'] = total_loss
         return loss_dict
@@ -166,19 +158,16 @@ class DistillationModule(L.LightningModule):
         features = self._extract_features(batch)
 
         # Compute losses with gradient tracking
-        losses = self._compute_losses(
-            features['student']['res4'],
-            features['student']['res5'], 
-            features['teacher']
-        )
+        losses = self._compute_losses(features)
         
         self._log_training_metrics(losses, features)
 
         return losses['loss']
+    
 
     def validation_step(self, batch, batch_idx):
         features = self._extract_features(batch)
-        losses = self._compute_losses(features['student']['res4'],features['student']['res5'], features['teacher'])
+        losses = self._compute_losses(features)
         self._log_validation_metrics(losses, features)
 
     def _extract_features(self, batch):
@@ -218,17 +207,32 @@ class DistillationModule(L.LightningModule):
         return similarity.mean()
 
     def _load_student_checkpoint(self, checkpoint_path):
-        """Load student checkpoint and return state dict."""
+        """Load student checkpoint, update state dict and log load info via the Lightning logger."""
         checkpoint = torch.load(checkpoint_path)
-        # Filter checkpoint to only include keys that exist in student model
-        # state_dict = {k: v for k, v in checkpoint.items() if k in self.student.state_dict()}
-        # self.student.load_state_dict(state_dict, strict=False)
-        checkpoint = {f"model.model.{k}": v for k, v in checkpoint.items()}
-
-        self.student.load_state_dict(checkpoint, strict=False)
         
-        return checkpoint
-
+        # Process the checkpoint based on model name configuration.
+        if self.cfg.student.model_name == 'stdc':
+            checkpoint = {f"model.model.{k.replace('cp.backbone.', '')}": v for k, v in checkpoint.items()}
+            result = self.student.load_state_dict(checkpoint, strict=False)
+        elif 'resnet' in self.cfg.student.model_name:
+            checkpoint = {f"model.model.{k}": v for k, v in checkpoint.items()}
+            result = self.student.load_state_dict(checkpoint, strict=False)
+        else:
+            # Default loading behavior if no specific model name match.
+            result = self.student.load_state_dict(checkpoint, strict=False)
+        
+        # Log checkpoint load details using the Lightning logger.
+        if self.logger:
+            self.logger.info(f"Loading student checkpoint from: {checkpoint_path}")
+            self.logger.info(f"Missing keys: {result.missing_keys}")
+            self.logger.info(f"Unexpected keys: {result.unexpected_keys}")
+        else:
+            print("Logger is not configured. Falling back to print:")
+            print(f"Loading student checkpoint from: {checkpoint_path}")
+            print(f"Missing keys: {result.missing_keys}")
+            print(f"Unexpected keys: {result.unexpected_keys}")
+        
+            
     def configure_optimizers(self):
         """Configure optimizers with flexible optimizer and scheduler options."""
         # Collect parameters from both student and losses
@@ -266,6 +270,7 @@ class DistillationModule(L.LightningModule):
             
             return {
                 "optimizer": optimizer,
+                
                 "lr_scheduler": {
                     "scheduler": scheduler,
                     "monitor": self.cfg['optimizer']['scheduler'].get('monitor', 'val_loss'),
@@ -275,5 +280,4 @@ class DistillationModule(L.LightningModule):
             }
         
         return optimizer
-    
 

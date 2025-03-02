@@ -1,8 +1,8 @@
 student:
   model_name: resnet
   student_key: [res5, res4]
-  pretrained: true
-  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50_distilled.pth
+  # pretrained: true
+  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50.pth
   kwargs:
     depth: 50
     out_features: ['res4', 'res5']
@@ -54,7 +54,7 @@ optimizer:
 loss:
   losses:
     - type: scalekd
-      weight: 1.0
+      weight: 1
       kwargs:
         alpha: [0.08, 0.06]
         student_dims: 1024
@@ -63,7 +63,7 @@ loss:
         pos_hw: [16, 16]
         pos_dims: 384
         window_shapes: [1, 1]
-        self_query: true
+        self_query: True
         softmax_scale: [5.0, 5.0]
         dis_freq: high
         num_heads: 16
@@ -79,7 +79,7 @@ loss:
         pos_hw: [16, 16]
         pos_dims: 384
         window_shapes: [1, 1]
-        self_query: true
+        self_query: False
         softmax_scale: [5.0, 5.0]
         dis_freq: high
         num_heads: 24
@@ -96,14 +96,14 @@ loss:
 
 train:
   name: resnet50
-  max_epochs: 60
+  max_epochs: 10
   accelerator: gpu
   devices: [0,1]
   num_nodes: 1
-  strategy: ddp_find_unused_parameters_true
+  strategy: ddp
   # resume_from_checkpoint: "/path/to/your/checkpoint.ckpt"  # Add this line
 data_loader:
-  data_dir: /home/arda/data/train2017
+  data_dir: /storage/disk2/sam_resized
   batch_size: 64
   num_workers: 8
   
@@ -117,9 +117,10 @@ feature_matcher:
     padding: 0
   res4:
     out_channels: 1024
-    kernel_size: 1
+    kernel_size: 3
     stride: 1
-    padding: 0
+    padding: 1
+
 
 checkpoints:
   dirpath: checkpoints
@@ -127,8 +128,10 @@ checkpoints:
   mode: max
   save_top_k: 3
 
+
 wandb:
   project: "dinov2-distillation"  # Project name in W&B
   name: resnet50  # Run name (will use train.name if null)
   tags: ["distillation", "resnet", "dinov2"]  # Searchable tags
   notes: "Knowledge distillation from DINOv2 to ResNet50"  # Run description
+

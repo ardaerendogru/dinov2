@@ -270,3 +270,73 @@ class STDCNet(nn.Module):
             feat32 = self.conv_last(feat32)
             outs["res5"] = feat32
         return outs
+    
+    def forward_specific_stage(self, x, start_layer):
+        """
+        Forward the STDCNet model starting from a specific stage.
+
+        Args:
+            x (Tensor):
+                - If start_layer == "res2", x is expected to be a raw input image tensor of shape (N, C, H, W).
+                - Otherwise (for "res3", "res4", or "res5"), x is expected to be the feature map
+                  computed from the preceding stage.
+            start_layer (str): Indicates the stage from which to begin forwarding.
+                Must be one of: "res2", "res3", "res4", "res5".
+
+        Returns:
+            dict[str, Tensor]: A dictionary with the computed features starting from the specified stage.
+                Keys are the same as in the full forward pass (e.g., "res2", "res3", "res4", "res5").
+        """
+        outs = {}
+        if start_layer == "res2":
+            # For "res2", compute from raw input.
+            feat2 = self.x2(x)
+            feat4 = self.x4(feat2)
+            outs["res2"] = feat4
+
+            feat8 = self.x8(feat4)
+            outs["res3"] = feat8
+
+            feat16 = self.x16(feat8)
+            outs["res4"] = feat16
+
+            feat32 = self.x32(feat16)
+            if self.use_conv_last:
+                feat32 = self.conv_last(feat32)
+            outs["res5"] = feat32
+
+        elif start_layer == "res3":
+            # For "res3", assume x is already the output of the previous block (i.e. "res2").
+            feat8 = self.x8(x)
+            outs["res3"] = feat8
+
+            feat16 = self.x16(feat8)
+            outs["res4"] = feat16
+
+            feat32 = self.x32(feat16)
+            if self.use_conv_last:
+                feat32 = self.conv_last(feat32)
+            outs["res5"] = feat32
+
+        elif start_layer == "res4":
+            # For "res4", assume x is already the output of "res3".
+            feat16 = self.x16(x)
+            outs["res4"] = feat16
+
+            feat32 = self.x32(feat16)
+            if self.use_conv_last:
+                feat32 = self.conv_last(feat32)
+            outs["res5"] = feat32
+
+        elif start_layer == "res5":
+            # For "res5", assume x is already the output of "res4".
+            feat32 = self.x32(x)
+            if self.use_conv_last:
+                feat32 = self.conv_last(feat32)
+            outs["res5"] = feat32
+
+        else:
+            raise ValueError("Invalid start_layer. Must be one of 'res2', 'res3', 'res4', or 'res5'.")
+
+        return outs
+

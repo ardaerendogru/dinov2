@@ -2,10 +2,7 @@
 
 # List of config files to train
 CONFIGS=(
-    "config/config_small.yaml"
-    "config/config_base.yaml"
-    "config/config_large.yaml"
-    "config/config_giant.yaml"
+    "config/config_stdc2.yaml"
 )
 
 # Loop through each config file

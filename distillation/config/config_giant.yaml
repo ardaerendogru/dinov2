@@ -2,7 +2,7 @@ student:
   model_name: resnet
   student_key: [res5, res4]
   pretrained: true
-  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50_distilled.pth
+  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50.pth
   kwargs:
     depth: 50
     out_features: ['res4', 'res5']
@@ -42,6 +42,9 @@ optimizer:
     lr: 2.5e-4
     betas: [0.9, 0.999]
     weight_decay: 0.05
+  grad_clip:
+    type: norm  # or 'value'
+    value: 1.0  # max norm or clip value
   scheduler:
     type: CosineAnnealingLR
     kwargs:

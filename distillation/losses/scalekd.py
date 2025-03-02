@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.nn.init import trunc_normal_  # Add this import at the top
+from torch.nn.init import trunc_normal_
 import math
 import numpy as np
 import torch.nn.functional as F
+from torchvision.transforms.functional import resize # <---- ADDED resize import
+
 class ScaleKD(nn.Module):
     def __init__(self,
                  name,
@@ -24,7 +26,7 @@ class ScaleKD(nn.Module):
         self.alpha = alpha
         self.dis_freq = dis_freq
         self.self_query = self_query
-
+        self.affinity_threshold = 0.1
         self.projector_0 = AttentionProjector(student_dims, teacher_dims, query_hw, pos_dims, window_shapes=window_shapes, self_query=self_query, softmax_scale=softmax_scale[0], num_heads=num_heads)
         self.projector_1 = AttentionProjector(student_dims, teacher_dims, query_hw, pos_dims, window_shapes=window_shapes, self_query=self_query, softmax_scale=softmax_scale[1], num_heads=num_heads)
     def forward(self,
@@ -62,23 +64,29 @@ class ScaleKD(nn.Module):
 
     def get_spat_loss(self, preds_S, preds_T):
         loss_mse = nn.MSELoss(reduction='sum')
-
-        N = preds_S.shape[0]
         N, C, H, W = preds_T.shape
-        device = preds_S.device
 
-        dct = DCT(resolution=H, device=device)
+        # Project student's features and reshape to (B, teacher_dims, H, W)
+        preds_S = preds_S.permute(0, 2, 1).contiguous().view(N, C, H, W)
 
+        # Compute teacher's affinity map: [B, H*W, H, W]
+        corrs = self._compute_affinity_map(preds_T)
 
-        preds_S = preds_S.permute(0,2,1).contiguous().view(*preds_T.shape)
+        # Refine student's features using weighted pooling
+        preds_S = self.compute_weighted_pool(preds_S, corrs)  # Output: [B, teacher_dims, H, W]
 
-        preds_S = F.normalize(preds_S, dim=1)
-        preds_T = F.normalize(preds_T, dim=1)
+        # Normalize features for loss computation
+        # preds_S = F.normalize(preds_S_refined, dim=1)
+        # preds_T = F.normalize(preds_T, dim=1)
 
-        dis_loss_arch_st = loss_mse(preds_S, preds_T)/N 
+        # Compute MSE loss
+        dis_loss_arch_st = loss_mse(preds_S, preds_T) / N
         dis_loss_arch_st = dis_loss_arch_st * self.alpha[0]
-        similarity = F.cosine_similarity(preds_S, preds_T, dim=1)
-        return dis_loss_arch_st, similarity.mean()
+
+        # Compute cosine similarity for monitoring
+        similarity = F.cosine_similarity(preds_S, preds_T, dim=1).mean()
+
+        return dis_loss_arch_st, similarity
 
 
     def get_freq_loss(self, preds_S, preds_T):
@@ -98,17 +106,65 @@ class ScaleKD(nn.Module):
 
         preds_S = dct.inverse(preds_S_freq)
         preds_T = dct.inverse(preds_T_freq)
+        # preds_S = F.normalize(preds_S, dim=1, p=2)
+        # preds_T = F.normalize(preds_T, dim=1, p=2)
+        corrs = self._compute_affinity_map(preds_T)
 
-        preds_S = F.normalize(preds_S, dim=1, p=2)
-        preds_T = F.normalize(preds_T, dim=1, p=2)
-
+        # Refine student's features using weighted pooling
+        preds_S = self.compute_weighted_pool(preds_S, corrs)  # Output: [B, teacher_dims, H, W]
+        
         dis_loss = loss_mse(preds_S, preds_T)/N 
 
         dis_loss = dis_loss * self.alpha[1]
 
         return dis_loss
 
+    def _compute_affinity_map(self, teacher_features):
+        """Compute normalized patch-wise affinity map from teacher features."""
+        # Assuming teacher_features is BxCxHxW
+        B, C, H, W = teacher_features.shape
+        patch_features = teacher_features.flatten(2)  # shape: [B, C, H*W]
+        patch_features = F.normalize(patch_features, p=2, dim=1)  # normalize feature vectors along the channel dim
 
+        # Compute cosine similarity between patches:
+        corrs = torch.matmul(patch_features.transpose(1, 2), patch_features)  # shape: [B, H*W, H*W]
+        corrs = corrs.reshape(B, H, W, H * W).permute(0, 3, 1, 2)  # reshape to expected format: [B, H*W, H, W]
+        corrs[corrs < 0.2] = 0.0
+        return corrs
+
+    def compute_weighted_pool(self, maskclip_feats: torch.Tensor, corrs: torch.Tensor):
+        """
+        Weighted pooling method from CLIP-DINOiser paper - REVISED for 3D corrs.
+        :param maskclip_feats: torch.tensor - raw clip features (student features in our case)
+        :param corrs: torch.tensor - correlations as weights (affinity map in our case) - EXPECTED SHAPE: BxNxN
+        :return: torch.tensor - refined clip features (pooled student features)
+        """
+        """
+        Weighted pooling method.
+        :param maskclip_feats: torch.tensor - raw clip features
+        :param corrs: torch.tensor - correlations as weights for pooling mechanism
+        :return: torch.tensor - refined clip features
+        """
+        B = maskclip_feats.shape[0]
+        h_m, w_m = maskclip_feats.shape[-2:]
+        h_w, w_w = corrs.shape[-2:]
+
+        if (h_m != h_w) or (w_m != w_w):
+            maskclip_feats = resize(
+                input=maskclip_feats,
+                size=(h_w, w_w),
+                mode='bilinear',
+                align_corners=False)
+            h_m, w_m = h_w, w_w
+
+        maskclip_feats_ref = torch.einsum("bnij, bcij -> bcn", corrs, maskclip_feats)  # B C HW
+        norm_factor = corrs.flatten(-2, -1).sum(dim=-1)[:, None]  # B 1 HW
+        maskclip_feats_ref = maskclip_feats_ref / (norm_factor + 1e-6)
+
+        # RESHAPE back to 2d
+        maskclip_feats_ref = maskclip_feats_ref.reshape(B, -1, h_m, w_m)
+        return maskclip_feats_ref
+    
 
 
 class AttentionProjector(nn.Module):
@@ -137,6 +193,7 @@ class AttentionProjector(nn.Module):
                                       nn.ReLU())
 
         self.pos_embed = nn.Parameter(torch.zeros(1, student_dims, hw_dims[0], hw_dims[1]), requires_grad=True)
+        
         self.pos_attention = WindowMultiheadPosAttention(teacher_dims, num_heads=num_heads, input_dims=student_dims, pos_dims=pos_dims, window_shapes=window_shapes, softmax_scale=softmax_scale)
         self.ffn = FFN(
             embed_dims=teacher_dims,
@@ -378,7 +435,7 @@ class FFN(nn.Module):
         self.num_fcs = num_fcs
         self.act_cfg = act_cfg
         self.dropout = dropout
-        self.activate = nn.ReLU(inplace=True)  # Simplified activation for this case
+        self.activate = nn.ReLU(inplace=True) 
 
         layers = nn.ModuleList()
         in_channels = embed_dims
@@ -402,3 +459,4 @@ class FFN(nn.Module):
         if residual is None:
             residual = x
         return residual + self.dropout(out)
+

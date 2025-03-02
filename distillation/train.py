@@ -143,7 +143,10 @@ class DistillationTrainer:
             callbacks=[checkpoint_callback],
             logger=logger,
             num_sanity_val_steps=0,
+            gradient_clip_val=1.0,  # Example: Clip gradients to a maximum norm of 1.0
+            gradient_clip_algorithm="norm", # Optional: "norm" (default) or "value"
             # resume_from_checkpoint=self.cfg.train.get('resume_from_checkpoint', None)
+            # accumulate_grad_batches=2
 
         )
 
