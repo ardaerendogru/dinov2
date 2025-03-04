@@ -3,6 +3,10 @@ import torch.nn as nn
 from .base import BaseModel
 from .resnet import ResNet, BasicStem, make_resnet_stages
 from torchvision import models
+import logging
+
+logger = logging.getLogger("dinov2_distillation")
+
 class   ResNetWrapper(BaseModel):
     def __init__(
         self,
@@ -21,7 +25,6 @@ class   ResNetWrapper(BaseModel):
         stem = BasicStem(in_channels=3, out_channels=64, norm=norm_type)
         stages = make_resnet_stages(
             depth=depth,
-            dilation=(1, 1, 1, 1),
             norm=norm_type
         )
         
@@ -32,14 +35,13 @@ class   ResNetWrapper(BaseModel):
             out_features=out_features,
             freeze_at=freeze_at
         )
-        self.depth = 50
-        self._feature_channels = self.model._out_feature_channels
 
     def get_features(self, x):
         return self.model(x)
     
     @property
     def feature_channels(self):
-        return self._feature_channels
+        return self.model._out_feature_channels
     
+
     

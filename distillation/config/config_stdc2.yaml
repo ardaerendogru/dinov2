@@ -1,22 +1,14 @@
 student:
-  model_name: stdc
-  student_key: [res5, res4]
-  pretrained: true
+  model_name: stdc2
+  student_keys: [res5, res4, res3, res2]
   checkpoint_path: /home/arda/dinov2/distillation/checkpoints/STDCNet2.pth
-  kwargs:
-    base_channels: 64
-    layers: [4, 5, 3] #[2,2,2] for STDC1
-    block_num: 4
-    block_type: cat
-    use_conv_last: false
+
 
 
 
 teacher:
   model_name: dinov2_vits14
-  teacher_key: feature_map
-  out_dim: 384
-  n_patches: 256
+
 
 
 
@@ -26,7 +18,7 @@ data_transform:
   global_crops_scale: [0.32, 1.0]
   local_crops_scale: [0.05, 0.32]
   global_crops_size: [224, 224]
-  local_crops_size: [224, 224]
+  local_crops_size: [224, 224] 
 
 
 
@@ -48,81 +40,50 @@ optimizer:
 
 loss:
   losses:
-    # - type: scalekd
-    #   weight: 1.0
-    #   kwargs:
-    #     alpha: [0.08, 0.06]
-    #     student_dims: 256
-    #     teacher_dims: 384
-    #     query_hw: [16, 16]
-    #     pos_hw: [16, 16]
-    #     pos_dims: 384
-    #     window_shapes: [1, 1]
-    #     self_query: true
-    #     softmax_scale: [5.0, 5.0]
-    #     dis_freq: high
-    #     num_heads: 16
-    #     name: scalekd_n_2
-    #     use_this: true
-    # - type: scalekd
-    #   weight: 1
-    #   kwargs:
-    #     alpha: [0.08, 0.06]
-    #     student_dims: 512
-    #     teacher_dims: 384
-    #     query_hw: [16, 16]
-    #     pos_hw: [16, 16]
-    #     pos_dims: 384
-    #     window_shapes: [1, 1]
-    #     self_query: False
-    #     softmax_scale: [5.0, 5.0]
-    #     dis_freq: high
-    #     num_heads: 24
-    #     name: scalekd_n_1
-    #     use_this: true
     - type: scalekd
       weight: 1
       kwargs:
-        alpha: [0.24, 0.18]
-        student_dims: 512
-        teacher_dims: 384
-        query_hw: [16, 16]
-        pos_hw: [16, 16]
-        pos_dims: 384
+        alpha: [0.08, 0.06]
         window_shapes: [1, 1]
         self_query: True
         softmax_scale: [5.0, 5.0]
         dis_freq: high
         num_heads: 16
-        name: scalekd_n
+        name: scalekd_res2
+        use_this: true
+    - type: scalekd
+      weight: 1
+      kwargs:
+        alpha: [0.08, 0.06]
+        window_shapes: [1, 1]
+        self_query: False
+        softmax_scale: [5.0, 5.0]
+        dis_freq: high
+        num_heads: 16
+        name: scalekd_res3
+        use_this: true
+    - type: scalekd
+      weight: 1
+      kwargs:
+        alpha: [0.08, 0.06]
+        window_shapes: [1, 1]
+        self_query: False
+        softmax_scale: [5.0, 5.0]
+        dis_freq: high
+        num_heads: 16
+        name: scalekd_res4
         use_this: true
     - type: scalekd
       weight: 1.0
       kwargs:
-        alpha: [0.24, 0.18]
-        student_dims: 1024
-        teacher_dims: 384
-        query_hw: [16, 16]
-        pos_hw: [16, 16]
-        pos_dims: 384
+        alpha: [0.08, 0.06]
         window_shapes: [1, 1]
         self_query: False
         softmax_scale: [5.0, 5.0]
         dis_freq: high
         num_heads: 24
-        name: scalekd_last
+        name: scalekd_res5
         use_this: true
-    # - type: custom  # Placeholder; we'll handle this manually in _compute_losses
-    #   weight: 1.0
-    #   kwargs:
-    #     name: affinity
-
-    # - type: dinoiser
-    #   weight: 1.0
-    #   kwargs:
-    #     student_dims: 2048
-    #     teacher_dims: 1536
-
 
 
 train:
@@ -133,36 +94,15 @@ train:
   num_nodes: 1
   strategy: ddp
   # resume_from_checkpoint: "/path/to/your/checkpoint.ckpt"  # Add this line
+
 data_loader:
   data_dir: /home/arda/data/train2017
+  #optionally val_dir: 
   batch_size: 64
   num_workers: 8
   
 
 
-feature_matcher:
-  res5:
-    out_channels: 1024
-    kernel_size: 1
-    stride: 1
-    padding: 0
-  res4:
-    out_channels: 512
-    kernel_size: 1
-    stride: 1
-    padding: 0
-
-
-  # res3:
-  #   out_channels: 512
-  #   kernel_size: 3
-  #   stride: 1
-  #   padding: 1
-  # res2:
-  #   out_channels: 256
-  #   kernel_size: 3
-  #   stride: 1
-  #   padding: 1
 
 checkpoints:
   dirpath: checkpoints

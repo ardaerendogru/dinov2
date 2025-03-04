@@ -6,7 +6,7 @@ import os
 import tempfile
 import torch.nn as nn
 import logging
-from losses import ScaleKD, DinoiserLoss
+from losses import ScaleKD
 # Create a temporary directory in your home or storage
 USER_TMP = '/storage/disk0/arda/tmp'
 os.makedirs(USER_TMP, exist_ok=True)
@@ -19,7 +19,6 @@ tempfile.tempdir = USER_TMP
 
 LOSS_REGISTRY = {
     'scalekd': ScaleKD,
-    'dinoiser': DinoiserLoss
 }
 
 class DistillationModule(L.LightningModule):
@@ -57,7 +56,7 @@ class DistillationModule(L.LightningModule):
         for name, param in self.student.named_parameters():
             assert param.requires_grad, f"Parameter {name} in student model must be trainable"
             
-
+    
     def _freeze_teacher(self):
         """Freeze teacher model parameters."""
         self.teacher.eval()
@@ -83,18 +82,19 @@ class DistillationModule(L.LightningModule):
             self.losses[name] = loss_fn  # This automatically registers the module
             self.loss_weights[name] = weight
         self.register_module('losses', self.losses)
-        # # Debug: Print all registered modules and their parameters
-        # for name, module in self.named_modules():
-        #     if isinstance(module, nn.Module):
-        #         params = [p for p in module.parameters() if p.requires_grad]
-        #         if params:
-        #             print(f"Module {name} has {len(params)} trainable parameters")
 
-    def _forward_specific_stage(self, feat, percentage):
+    def _forward_specific_stage(self, feat, layer):
         #AVG of patch tokens
+        if layer == 'res5':
+            return feat
+        layers = {
+            'res2':0.25,
+            'res3':0.50,
+            'res4':0.75
+        }
         """Forward through specific stages of teacher model."""
         n_total_blocks = len(self.teacher.model.blocks)
-        target_block = int(n_total_blocks*percentage)
+        target_block = int(n_total_blocks*layers[layer])
         for i in range(target_block, n_total_blocks):
             feat = self.teacher.model.blocks[i](feat)
         return feat
@@ -104,50 +104,50 @@ class DistillationModule(L.LightningModule):
         total_loss = 0
         loss_dict = {}
 
-        scalekd_n_loss = self.losses['scalekd_n']
-        scalekd_last_loss = self.losses['scalekd_last']
-        scalekd_n_weight = self.loss_weights['scalekd_n']
-        scalekd_last_weight = self.loss_weights['scalekd_last']
 
-        # Project student features and forward through teacher stages
-        feat_S_s3_spat = scalekd_n_loss.project_feat_spat(features['student']['res4'], query=None)
-        feat_S_s3_spat = self._forward_specific_stage(feat_S_s3_spat, 0.75)
 
-        feat_S_s3_freq = scalekd_n_loss.project_feat_freq(features['student']['res4'], query=None)
-        feat_S_s3_freq = self._forward_specific_stage(feat_S_s3_freq, 0.75)
+        # <SCALEKD_LOSS>----------------------------------------------------------------------------------
+        spatial_query = None
+        frequency_query = None
 
-        # Existing ScaleKD losses
-        scalekd_n_spat = scalekd_n_loss.get_spat_loss(feat_S_s3_spat, features['teacher'])
-        scalekd_n_freq = scalekd_n_loss.get_freq_loss(feat_S_s3_freq, features['teacher'])
-        scalekd_last_dict = scalekd_last_loss(features['student']['res5'], features['teacher'], 
-                                            query_s=feat_S_s3_spat, 
-                                            query_f=feat_S_s3_freq)
+        scale_kd_losses = sorted([f'scalekd_{layer}' for layer in self.cfg.student.student_keys])
 
-        # Compute affinity maps
-        N,C,H,W = features['teacher'].shape
-        scalekd_last_spat_feat = scalekd_last_loss.project_feat_spat(features['student']['res5'], query = feat_S_s3_spat).permute(0, 2, 1).contiguous().view(N, C, H, W)
-        teacher_affinity = scalekd_n_loss._compute_affinity_map(features['teacher'])
-        student_affinity = scalekd_n_loss._compute_affinity_map(scalekd_last_spat_feat)
+        for scale_kd_layer in scale_kd_losses:
+            layer_name = scale_kd_layer.split('_')[1]
 
-        # Compute affinity loss (e.g., MSE)
-        affinity_loss = self.loss_mse(student_affinity, teacher_affinity)/scalekd_last_spat_feat.shape[0]
-        affinity_weight = 15  # Configurable via cfg.loss.losses
+            if 'res5' in scale_kd_layer:
+                weight = self.loss_weights[scale_kd_layer]
+                loss_fn = self.losses[scale_kd_layer]
+                loss = loss_fn(features['student'][layer_name], features['teacher'], 
+                                            query_s=spatial_query, 
+                                            query_f=frequency_query)
+                loss_dict[f'{scale_kd_layer}_total_loss'] = loss['loss'] * weight
+                loss_dict[f'{scale_kd_layer}_frequency_loss'] =  loss['frequency_loss'] * weight
+                loss_dict[f'{scale_kd_layer}_spatial_loss'] =  loss['spatial_loss'] * weight
+                loss_dict[f'{scale_kd_layer}_spatial_similarity'] = loss['spatial_similarity'] 
+                loss_dict[f'{scale_kd_layer}_frequency_similarity'] = loss['frequency_similarity'] 
+                total_loss += loss['loss'] * weight
+                break
 
-        # Update total loss
-        total_loss += (scalekd_n_spat[0] + scalekd_n_freq) * scalekd_n_weight
-        total_loss += scalekd_last_dict['loss'] * scalekd_last_weight
-        total_loss += affinity_loss * affinity_weight
 
-        # Update loss dictionary
-        loss_dict['loss_scalekd_n_spat'] = scalekd_n_spat[0] * scalekd_n_weight
-        loss_dict['loss_scalekd_n_freq'] = scalekd_n_freq * scalekd_n_weight
-        loss_dict['loss_scalekd_n_similarity'] = scalekd_n_spat[1] * scalekd_n_weight
-        loss_dict['loss_scalekd_last'] = scalekd_last_dict['loss'] * scalekd_last_weight
-        loss_dict['loss_scalekd_last_similarity'] = scalekd_last_dict['cosine_similarity'] * scalekd_last_weight
-        loss_dict['loss_scalekd_last_spatial_loss'] = scalekd_last_dict['spatial_loss'] * scalekd_last_weight
-        loss_dict['loss_scalekd_last_frequency_loss'] = scalekd_last_dict['frequency_loss'] * scalekd_last_weight
-        loss_dict['loss_affinity'] = affinity_loss * affinity_weight
 
+            loss_fn = self.losses[scale_kd_layer]
+            weight = self.loss_weights[scale_kd_layer]
+            feat_S_spat = loss_fn.project_feat_spat(features['student'][layer_name], query=spatial_query)
+            feat_S_freq = loss_fn.project_feat_freq(features['student'][layer_name], query=frequency_query)
+            feat_S_spat = self._forward_specific_stage(feat_S_spat, layer_name) 
+            feat_S_freq = self._forward_specific_stage(feat_S_freq, layer_name)
+            spatial_query = feat_S_spat
+            frequency_query = feat_S_freq
+            spatial_loss, spatial_similarity = loss_fn.get_spat_loss(feat_S_spat, features['teacher'])
+            frequency_loss, frequency_similarity = loss_fn.get_spat_loss(feat_S_freq, features['teacher'])
+            loss_dict[f'{scale_kd_layer}_total_loss'] = (spatial_loss + frequency_loss )* weight
+            loss_dict[f'{scale_kd_layer}_frequency_loss'] =  frequency_loss * weight
+            loss_dict[f'{scale_kd_layer}_spatial_loss'] =  spatial_loss * weight
+            loss_dict[f'{scale_kd_layer}_spatial_similarity'] =  spatial_similarity
+            loss_dict[f'{scale_kd_layer}_frequency_similarity'] = frequency_similarity           
+            total_loss += (spatial_loss + frequency_loss )* weight
+        #<SCALEKD_LOSS\>------------------------------------------------------------------------------------------------
         loss_dict['loss'] = total_loss
         return loss_dict
     def training_step(self, batch, batch_idx):

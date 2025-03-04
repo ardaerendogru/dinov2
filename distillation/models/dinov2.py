@@ -19,22 +19,29 @@ class DINOv2ViT(nn.Module):
         # Load model from torch hub
         self.model = torch.hub.load('facebookresearch/dinov2', model_name)
         # Freeze all parameters
+        self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False
+        self.H = None  # Initialize H
+        self.W = None  # Initialize W
     def forward(self, x):
+
+
+
         # Get features from the model's last layer
         patch_embeddings, cls_token = self.model.get_intermediate_layers(x, n=1, return_class_token=True)[0]  # [B, N+1, D]
-        # print(f" patch_embeddings shape: {patch_embeddings.shape}")
-        # print(f" cls_token shape: {cls_token.shape}")
-        # Convert patch embeddings to feature map format
-        B, N, D = patch_embeddings.shape
-        H = x.shape[2]//14
-        W = x.shape[3]//14
-        feature_map = patch_embeddings.reshape(B, H, W, D).permute(0, 3, 1, 2)  # [B, D, P, P]
+        # Calculate H and W only once
+        if self.H is None:
+            self.H = x.shape[2] // 14
+            self.W = x.shape[3] // 14
+        
+        self.B, _, self.D = patch_embeddings.shape
+            
+        feature_map = patch_embeddings.reshape(self.B, self.H, self.W, self.D).permute(0, 3, 1, 2)  # [B, D, P, P]
         
         return {
-            'patch_embeddings': patch_embeddings,  # Per-patch embeddings excluding CLS
-            'embedding': cls_token,        # CLS token embedding
+            # 'patch_embeddings': patch_embeddings,  # Per-patch embeddings excluding CLS
+            # 'embedding': cls_token,        # CLS token embedding
             'feature_map': feature_map,
         }
 

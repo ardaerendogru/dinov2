@@ -1,2 +1,1 @@
 from .CustomDataset import CustomDataModule
-from .collate_fn import collate_data_and_cast

@@ -19,6 +19,8 @@ from distillation.datasets.CustomDataset import CustomDataModule
 from dinov2.data.augmentations import DataAugmentationDINO
 import tempfile
 import wandb
+import logging
+
 os.environ["NCCL_P2P_DISABLE"] = "1"
 # Create a temporary directory in your home or storage
 USER_TMP = '/storage/disk0/arda/tmp'
@@ -29,6 +31,9 @@ os.environ['TMPDIR'] = USER_TMP
 os.environ['TEMP'] = USER_TMP
 os.environ['TMP'] = USER_TMP
 tempfile.tempdir = USER_TMP
+
+
+logger = logging.getLogger("dinov2_distillation")
 
 @dataclass
 class TrainingConfig:
@@ -42,7 +47,7 @@ class DistillationTrainer:
     """Handles the training pipeline for knowledge distillation."""
     
     def __init__(self, config: Dict[str, Any]):
-        self.cfg = config
+        self.cfg = self._handle_config(config)
         self.training_config = self._setup_training_config()
         
         # Initialize components
@@ -53,6 +58,47 @@ class DistillationTrainer:
         self.trainer = self._create_trainer()
         self.checkpoint_path = self.cfg.train.get('resume_from_checkpoint', None)
     
+
+    def _handle_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        teacher_dims = {
+            'dinov2_vits14' : 384,
+            'dinov2_vitb14' : 768,
+            'dinov2_vitl14' : 1024,
+            'dinov2_vitg14' : 1536
+
+        }
+
+        config.teacher.out_dim = teacher_dims[config.teacher.model_name]
+        config.teacher.teacher_key = 'feature_map'
+        config.teacher.n_patches = int((config.data_transform.global_crops_size[0]//14)**2)
+        config.student.kwargs = {}
+
+        for loss in config.loss.losses:
+            if loss.type == 'scalekd':
+                # loss['kwargs']['student_dims'] = len(config.student.kwargs.out_features) * 512  # Example calculation
+                loss.kwargs.teacher_dims = config.teacher.out_dim
+                loss.kwargs.teacher_dims = config.teacher.out_dim
+                loss.kwargs.pos_dims = config.teacher.out_dim
+                loss.kwargs.pos_hw = [int(config.data_transform.global_crops_size[0]//14),int(config.data_transform.global_crops_size[0]//14)]
+                loss.kwargs.query_hw = [int(config.data_transform.global_crops_size[0]//14),int(config.data_transform.global_crops_size[0]//14)]
+        if config.student.model_name in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
+            config.student.model_name = 'resnet'
+            config.student.kwargs.depth = int(config.student.model_name.replace('resnet', '')) 
+            config.student.kwargs.out_features = ['res2', 'res3', 'res4', 'res5']
+            config.student.kwargs.freeze_at = 0
+            config.student.kwargs.norm_type = 'BN'
+        elif config.student.model_name in ['stdc1', 'stdc2']:
+            config.student.model_name = 'stdc'
+            config.student.kwargs.base_channels = 64
+            config.student.kwargs.layers = [2,2,2] if config.student.model_name == 'stdc1' else [4,5,3]
+            config.student.kwargs.block_num = 4
+            config.student.kwargs.block_type = 'cat'
+            config.student.kwargs.use_conv_last = False
+
+
+        return config
+        
+
     def _setup_training_config(self) -> TrainingConfig:
         """Setup training configuration."""
         return TrainingConfig(
@@ -74,7 +120,8 @@ class DistillationTrainer:
     def _create_data_module(self) -> CustomDataModule:
         """Create data module."""
         return CustomDataModule(
-            data_dir=self.cfg['data_loader'].get('data_dir', '/home/arda/data/train2017'),
+            train_data_dir=self.cfg['data_loader'].get('train_dir', '/home/arda/data/train2017'),
+            val_data_dir = self.cfg['data_loader'].get('val_dir', None),
             transform=self.transform,
             batch_size=self.cfg['data_loader']['batch_size'],
             num_workers=self.cfg['data_loader']['num_workers']
@@ -86,12 +133,17 @@ class DistillationTrainer:
             model_name=self.cfg['teacher']['model_name'],
         )
         student = ModelWrapper(
-            model_type=self.cfg['student']['model_name'],
+            model_name=self.cfg['student']['model_name'],
             n_patches=self.cfg.teacher.n_patches,
-            target_feature=self.cfg['student']['student_key'],
-            feature_matcher_config=self.cfg['feature_matcher'],
+            target_feature=self.cfg['student']['student_keys'],
+            checkpoint_path=self.cfg.student.get('checkpoint_path', None)
             **self.cfg['student']['kwargs']
         )
+        for loss in self.cfg.loss.losses:
+            if loss.type == 'scalekd':
+                loss.kwargs.student_dims = int(student.feature_channels[loss.kwargs.name.split('_')[1]] )
+                
+
         return teacher, student
 
     def _create_distillation_module(self) -> DistillationModule:

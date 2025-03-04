@@ -4,7 +4,10 @@ from torch.nn.init import trunc_normal_
 import math
 import numpy as np
 import torch.nn.functional as F
-from torchvision.transforms.functional import resize # <---- ADDED resize import
+from torchvision.transforms.functional import resize 
+from typing import Optional, Dict, Tuple
+
+
 
 class ScaleKD(nn.Module):
     def __init__(self,
@@ -26,29 +29,31 @@ class ScaleKD(nn.Module):
         self.alpha = alpha
         self.dis_freq = dis_freq
         self.self_query = self_query
-        self.affinity_threshold = 0.1
         self.projector_0 = AttentionProjector(student_dims, teacher_dims, query_hw, pos_dims, window_shapes=window_shapes, self_query=self_query, softmax_scale=softmax_scale[0], num_heads=num_heads)
         self.projector_1 = AttentionProjector(student_dims, teacher_dims, query_hw, pos_dims, window_shapes=window_shapes, self_query=self_query, softmax_scale=softmax_scale[1], num_heads=num_heads)
     def forward(self,
-                preds_S,
-                preds_T,
-                query_s=None,
-                query_f=None,
-                ):
+                preds_S: torch.Tensor,
+                preds_T: torch.Tensor,
+                query_s: Optional[torch.Tensor] = None,
+                query_f: Optional[torch.Tensor] = None,
+                ) -> Dict[str, torch.Tensor]:
         """Forward function.
         Args:
-            preds_S(Tensor): Bs*C*H*W, student's feature map
-            preds_T(Tensor): Bs*C*H*W, teacher's feature map
+            preds_S (Tensor): Bs*C*H*W, student's feature map
+            preds_T (Tensor): Bs*C*H*W, teacher's feature map
+        Returns:
+            Dict[str, torch.Tensor]: Dictionary containing losses and similarity.
         """
 
         preds_S_spat =  self.project_feat_spat(preds_S, query=query_s)
         preds_S_freq =  self.project_feat_freq(preds_S, query=query_f)
 
-        spat_loss, similarity = self.get_spat_loss(preds_S_spat, preds_T)
-        freq_loss = self.get_freq_loss(preds_S_freq, preds_T)
+        spat_loss, spatial_similarity = self.get_spat_loss(preds_S_spat, preds_T)
+        freq_loss, frequency_similarity = self.get_freq_loss(preds_S_freq, preds_T)
         return {'spatial_loss': spat_loss, 
                 'frequency_loss': freq_loss, 
-                'cosine_similarity': similarity, 
+                'spatial_similarity': spatial_similarity, 
+                'frequency_similarity':frequency_similarity,
                 'loss': spat_loss + freq_loss}
     
     def project_feat_spat(self, preds_S, query=None):
@@ -62,22 +67,23 @@ class ScaleKD(nn.Module):
         return preds_S
 
 
-    def get_spat_loss(self, preds_S, preds_T):
+    def get_spat_loss(self, preds_S: torch.Tensor, preds_T: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute spatial loss between student and teacher features.
+        Args:
+            preds_S (Tensor): Student features.
+            preds_T (Tensor): Teacher features.
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Discrepancy loss and similarity.
+        """
         loss_mse = nn.MSELoss(reduction='sum')
         N, C, H, W = preds_T.shape
 
         # Project student's features and reshape to (B, teacher_dims, H, W)
         preds_S = preds_S.permute(0, 2, 1).contiguous().view(N, C, H, W)
 
-        # Compute teacher's affinity map: [B, H*W, H, W]
-        corrs = self._compute_affinity_map(preds_T)
-
-        # Refine student's features using weighted pooling
-        preds_S = self.compute_weighted_pool(preds_S, corrs)  # Output: [B, teacher_dims, H, W]
-
         # Normalize features for loss computation
-        # preds_S = F.normalize(preds_S_refined, dim=1)
-        # preds_T = F.normalize(preds_T, dim=1)
+        preds_S = F.normalize(preds_S, dim=1)
+        preds_T = F.normalize(preds_T, dim=1)
 
         # Compute MSE loss
         dis_loss_arch_st = loss_mse(preds_S, preds_T) / N
@@ -89,7 +95,14 @@ class ScaleKD(nn.Module):
         return dis_loss_arch_st, similarity
 
 
-    def get_freq_loss(self, preds_S, preds_T):
+    def get_freq_loss(self, preds_S: torch.Tensor, preds_T: torch.Tensor) -> torch.Tensor:
+        """Compute frequency loss between student and teacher features.
+        Args:
+            preds_S (Tensor): Student features.
+            preds_T (Tensor): Teacher features.
+        Returns:
+            torch.Tensor: Frequency loss.
+        """
         loss_mse = nn.MSELoss(reduction='sum')
         N, C, H, W = preds_T.shape
         device = preds_S.device
@@ -106,18 +119,15 @@ class ScaleKD(nn.Module):
 
         preds_S = dct.inverse(preds_S_freq)
         preds_T = dct.inverse(preds_T_freq)
-        # preds_S = F.normalize(preds_S, dim=1, p=2)
-        # preds_T = F.normalize(preds_T, dim=1, p=2)
-        corrs = self._compute_affinity_map(preds_T)
-
-        # Refine student's features using weighted pooling
-        preds_S = self.compute_weighted_pool(preds_S, corrs)  # Output: [B, teacher_dims, H, W]
+        preds_S = F.normalize(preds_S, dim=1, p=2)
+        preds_T = F.normalize(preds_T, dim=1, p=2)
         
         dis_loss = loss_mse(preds_S, preds_T)/N 
 
         dis_loss = dis_loss * self.alpha[1]
+        similarity = F.cosine_similarity(preds_S, preds_T, dim=1).mean()
 
-        return dis_loss
+        return dis_loss, similarity
 
     def _compute_affinity_map(self, teacher_features):
         """Compute normalized patch-wise affinity map from teacher features."""
@@ -132,12 +142,13 @@ class ScaleKD(nn.Module):
         corrs[corrs < 0.2] = 0.0
         return corrs
 
-    def compute_weighted_pool(self, maskclip_feats: torch.Tensor, corrs: torch.Tensor):
-        """
-        Weighted pooling method from CLIP-DINOiser paper - REVISED for 3D corrs.
-        :param maskclip_feats: torch.tensor - raw clip features (student features in our case)
-        :param corrs: torch.tensor - correlations as weights (affinity map in our case) - EXPECTED SHAPE: BxNxN
-        :return: torch.tensor - refined clip features (pooled student features)
+    def compute_weighted_pool(self, maskclip_feats: torch.Tensor, corrs: torch.Tensor) -> torch.Tensor:
+        """Weighted pooling method from CLIP-DINOiser paper - REVISED for 3D corrs.
+        Args:
+            maskclip_feats (torch.Tensor): Raw clip features (student features).
+            corrs (torch.Tensor): Correlations as weights (affinity map).
+        Returns:
+            torch.Tensor: Refined clip features (pooled student features).
         """
         """
         Weighted pooling method.
@@ -458,5 +469,5 @@ class FFN(nn.Module):
             return out
         if residual is None:
             residual = x
-        return residual + self.dropout(out)
+        return residual + out
 

@@ -1,27 +1,12 @@
 student:
-  model_name: resnet
-  student_key: [res5, res4]
-  # pretrained: true
-  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50.pth
-  kwargs:
-    depth: 50
-    out_features: ['res4', 'res5']
-    freeze_at: 0
-    norm_type: BN
-##Example for STDC
-# kwargs:
-#   base_channels: 64
-#   layers: [4, 5, 3]
-#   block_num: 4
-#   block_type: cat
-#   use_conv_last: false
+  model_name: resnet   #resnet50
+  student_keys: [res5, res4]   #keep
+  checkpoint_path: /home/arda/dinov2/distillation/checkpoints/resnet50.pth # keep
+
 
 
 teacher:
   model_name: dinov2_vits14
-  teacher_key: feature_map
-  out_dim: 384
-  n_patches: 256
 
 
 
@@ -57,11 +42,11 @@ loss:
       weight: 1
       kwargs:
         alpha: [0.08, 0.06]
-        student_dims: 1024
-        teacher_dims: 384
-        query_hw: [16, 16]
-        pos_hw: [16, 16]
-        pos_dims: 384
+        student_dims: 1024 #remove
+        teacher_dims: 384 #remove
+        query_hw: [16, 16] #remove
+        pos_hw: [16, 16] #remove
+        pos_dims: 384 #remove
         window_shapes: [1, 1]
         self_query: True
         softmax_scale: [5.0, 5.0]
@@ -109,17 +94,17 @@ data_loader:
   
 
 
-feature_matcher:
-  res5:
-    out_channels: 2048
-    kernel_size: 1
-    stride: 1
-    padding: 0
-  res4:
-    out_channels: 1024
-    kernel_size: 3
-    stride: 1
-    padding: 1
+# feature_matcher:
+#   res5:
+#     out_channels: 2048
+#     kernel_size: 1
+#     stride: 1
+#     padding: 0
+#   res4:
+#     out_channels: 1024
+#     kernel_size: 3
+#     stride: 1
+#     padding: 1
 
 
 checkpoints:

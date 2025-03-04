@@ -4,106 +4,77 @@ import numpy as np
 from typing import Optional, Dict, Any
 from .resnet_wrapper import ResNetWrapper
 from .stdc_wrapper import STDCWrapper
-from .feature_matcher import FeatureMatcher
 import torch.nn.functional as F
-import wandb
+import logging
+
+logger = logging.getLogger("dinov2_distillation")
+
 class ModelWrapper(nn.Module):
+    MODEL_MAP = {
+        'resnet': ResNetWrapper,
+        'stdc': STDCWrapper,
+    }
     def __init__(
         self,
-        model_type: str,
+        model_name: str,
         n_patches: int = 256,
-        target_feature: list[str] = ['res5'],
-        feature_matcher_config: Optional[Dict[str, Any]] = None,
+        target_feature: list[str] = ['res5', 'res4'],
         checkpoint_path: Optional[str] = None,
         **model_kwargs
     ):
         super().__init__()
         
-        # Create model
-        if model_type.lower() == 'resnet':
-            self.model = ResNetWrapper(**model_kwargs)
-        elif model_type.lower() == 'stdc':
-            self.model = STDCWrapper(**model_kwargs)
-        else:
-            raise ValueError(f"Unsupported model type: {model_type}")
+        # Validate model type
+        if model_name.lower() not in ['resnet', 'stdc']:
+            logger.error(f"Unsupported model type: {model_name}")
+            raise ValueError(f"Unsupported model type: {model_name}")
         
+        # Create model
+        self.model = self.MODEL_MAP[model_name.lower()](**model_kwargs)
+        
+        # Load checkpoint if specified
         if checkpoint_path:
             self.load_checkpoint(checkpoint_path)
-            print('Loaded checpoints.')
         
         self.n_patches = n_patches
         self.target_features = target_feature
-        
-        # # Create feature matchers if config provided
-        # if feature_matcher_config:
-        #     # Convert dictionary to ModuleDict for proper registration
-        #     self.feature_matchers = nn.ModuleDict()
-        #     for feat in self.target_features:
-        #         # Get correct input channels from model
-        #         in_channels = self.model.feature_channels[feat]
-                
-        #         # Get layer-specific config or use default if not specified
-        #         matcher_config = feature_matcher_config.get(feat, feature_matcher_config.get('default', {}))
-                
-        #         # Create new config with correct in_channels
-        #         layer_config = {**matcher_config}
-        #         layer_config['in_channels'] = in_channels
-                
-        #         print(f"Feature matcher config for {feat}: {layer_config}")  # Debug print
-        #         self.feature_matchers[feat] = FeatureMatcher(**layer_config)
-        # else:
-        #     self.feature_matchers = nn.ModuleDict()
-
-        # self.out_channels = 384
-        # self.batch_norm_layers = nn.ModuleDict({
-        #         feat: nn.BatchNorm2d(self.out_channels)
-        #         for feat in self.target_features
-        #     })
+        self.patch_size = int(np.sqrt(self.n_patches))
 
 
-    def forward(self, x):
-        # Get features from model
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+
         features = self.model.get_features(x)
-        
-        # Process target features if matchers exist
         matched_features = {}
-        # if self.feature_matchers:
         for feat in self.target_features:
             if feat in features:
                 target_feature = features[feat]
                 
                 # Interpolate to match patch size
-                patch_size = int(np.sqrt(self.n_patches))
-
-                # matched = self.feature_matchers[feat](target_feature)
-                
-                # # # Apply the corresponding BatchNorm layer
-                # bn = self.batch_norm_layers[feat]
-                # matched = bn(matched)
-                # relu = F.relu(matched)
                 matched_features[feat] = torch.nn.functional.interpolate(
                     target_feature,
-                    size=(patch_size, patch_size),
+                    size=(self.patch_size, self.patch_size),
                     mode='bilinear',
                     align_corners=False
                 )
         return matched_features
 
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model checkpoint and write state dict output to a file."""
-        checkpoint = torch.load(checkpoint_path)
-        
-        # Specify the log file path (adjust as needed)
-        log_file_path = "/home/arda/dinov2/distillation/checkpoints/checkpoint_loading_info.txt"
-        
-        # Write checkpoint path information to the file
-        with open(log_file_path, "a") as f:
-            f.write(f"Loading student checkpoint from: {checkpoint_path}\n")
-        
-        # Load state dict and get the result with missing and unexpected keys
-        result = self.load_state_dict(checkpoint, strict=False)
-        
-        # Write any missing or unexpected keys to the file
-        with open(log_file_path, "a") as f:
-            f.write(f"Missing keys: {result.missing_keys}\n")
-            f.write(f"Unexpected keys: {result.unexpected_keys}\n")
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """Load model checkpoint and log details."""
+        logger.info(f"Loading student checkpoint from: {checkpoint_path}")
+        try:
+            checkpoint = torch.load(checkpoint_path)
+            result = self.load_state_dict(checkpoint, strict=False)
+            logger.info(f"Checkpoint loaded successfully. Missing keys: {result.missing_keys}, Unexpected keys: {result.unexpected_keys}")
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}")
+            raise
+
+    def print_model_summary(self) -> None:
+        """Print a summary of the model architecture."""
+        logger.info("Model Summary:")
+        for name, param in self.named_parameters():
+            logger.info(f"{name}: {param.size()}")
+    @property
+    def feature_channels(self):
+        return self.model.feature_channels  # Access feature_channels directly from self.model

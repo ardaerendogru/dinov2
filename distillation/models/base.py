@@ -8,7 +8,7 @@ class BaseModel(ABC, nn.Module):
     
     @abstractmethod
     def get_features(self, x: Tensor) -> Dict[str, Tensor]:
-        """Get intermediate features from model"""
+        """Get features from model"""
         pass
     
     @property
