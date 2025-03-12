@@ -21,15 +21,6 @@ import wandb
 from utils import get_logger
 logger = get_logger()
 os.environ["NCCL_P2P_DISABLE"] = "1"
-# Create a temporary directory in your home or storage
-USER_TMP = '/storage/disk0/arda/tmp'
-os.makedirs(USER_TMP, exist_ok=True)
-
-# Set multiple environment variables to ensure temp files go to the right place
-os.environ['TMPDIR'] = USER_TMP
-os.environ['TEMP'] = USER_TMP
-os.environ['TMP'] = USER_TMP
-tempfile.tempdir = USER_TMP
 
 
 class DistillationTrainer:

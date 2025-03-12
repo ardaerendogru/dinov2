@@ -2,23 +2,13 @@ import lightning as L
 import torch
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
-import os
-import tempfile
 import torch.nn as nn
-import logging
 from losses import ScaleKD
 from utils import get_logger
 logger = get_logger()
-# Create a temporary directory in your home or storage
-USER_TMP = '/storage/disk0/arda/tmp'
-os.makedirs(USER_TMP, exist_ok=True)
 
 from copy import deepcopy
-# Set multiple environment variables to ensure temp files go to the right place
-os.environ['TMPDIR'] = USER_TMP
-os.environ['TEMP'] = USER_TMP
-os.environ['TMP'] = USER_TMP
-tempfile.tempdir = USER_TMP
+
 
 LOSS_REGISTRY = {
     'scalekd': ScaleKD,
