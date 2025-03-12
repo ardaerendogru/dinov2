@@ -2,7 +2,7 @@
 
 # List of config files to train
 CONFIGS=(
-    "config/config_stdc2.yaml"
+    "config/convnext.yaml"
 )
 
 # Loop through each config file

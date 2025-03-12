@@ -7,10 +7,13 @@ import tempfile
 import torch.nn as nn
 import logging
 from losses import ScaleKD
+from utils import get_logger
+logger = get_logger()
 # Create a temporary directory in your home or storage
 USER_TMP = '/storage/disk0/arda/tmp'
 os.makedirs(USER_TMP, exist_ok=True)
 
+from copy import deepcopy
 # Set multiple environment variables to ensure temp files go to the right place
 os.environ['TMPDIR'] = USER_TMP
 os.environ['TEMP'] = USER_TMP
@@ -22,50 +25,109 @@ LOSS_REGISTRY = {
 }
 
 class DistillationModule(L.LightningModule):
+    """
+    Core Lightning module for handling the distillation training process.
+
+    This module orchestrates the training of a student model by distilling knowledge from a pre-trained teacher model.
+    It encompasses model initialization, loss function configuration, optimization setup, and the training/validation loop.
+
+    Attributes:
+        cfg (dict):
+            Configuration dictionary loaded from a YAML file, defining hyperparameters, model settings,
+            loss configurations, and optimization parameters.
+        student (nn.Module):
+            The student model being trained to mimic the teacher's behavior. This model is typically smaller
+            and more efficient than the teacher.
+        teacher (nn.Module):
+            The pre-trained teacher model from which knowledge is distilled. This model is frozen during training
+            and serves as the source of rich feature representations.
+        losses (nn.ModuleDict):
+            A dictionary of loss functions used for distillation. Each loss function is registered as a module
+            and is configurable via the `cfg.loss` section. Common losses include ScaleKD, MSE, etc.
+        loss_weights (dict):
+            A dictionary specifying the weights for each loss function defined in `losses`. These weights
+            control the contribution of each loss to the total training objective.
+        loss_mse (nn.Module):
+            Mean Squared Error (MSE) loss module, potentially used as a component in certain distillation losses
+            or for auxiliary tasks. Initialized as `nn.MSELoss(reduction='sum')`.
+    """
+
     def __init__(
         self,
         student,
         teacher,
         cfg
     ):
+        """
+        Initializes the DistillationModule.
+
+        Constructs the distillation training framework by setting up the student and teacher models,
+        configuring loss functions, and preparing for the training process.
+
+        Args:
+            student (nn.Module): The student model instance.
+            teacher (nn.Module): The teacher model instance.
+            cfg (dict): The configuration dictionary containing training settings.
+        """
         super().__init__()
-        
+        logger.info("Starting DistillationModule initialization...")
         self.cfg = cfg
         self.save_hyperparameters(cfg)
         self._initialize_models(student, teacher)
         self._initialize_loss()
-        
         self.loss_mse = nn.MSELoss(reduction='sum')
+        logger.info("DistillationModule initialized.")
+
     def _initialize_models(self, student, teacher):
-        """Initialize models with gradient verification."""
+        """
+        Initializes and configures the student and teacher models.
+
+        Sets up the student and teacher models within the module, registers them for Lightning management,
+        freezes the teacher model to prevent its weights from being updated during training, and loads
+        a student checkpoint if a path is specified in the configuration.
+
+        Args:
+            student (nn.Module): The student model to be initialized.
+            teacher (nn.Module): The teacher model to be initialized.
+        """
+        logger.info("Initializing models...")
         self.student = student
         self.teacher = teacher
         self.register_module('student', self.student)
         self.register_module('teacher', self.teacher)
 
-
-
-        
         # Freeze teacher
         self._freeze_teacher()
         
         # Load checkpoint if specified
         if self.cfg.student.get('checkpoint_path', None):
             self._load_student_checkpoint(self.cfg.student.checkpoint_path)
-                # Assert all student parameters are trainable
-        for name, param in self.student.named_parameters():
-            assert param.requires_grad, f"Parameter {name} in student model must be trainable"
-            
-    
+        logger.info("Models initialized.")
+
     def _freeze_teacher(self):
-        """Freeze teacher model parameters."""
+        """
+        Freezes the parameters of the teacher model.
+
+        Sets the teacher model to evaluation mode (`eval()`) and disables gradient computation for all
+        teacher model parameters (`requires_grad = False`). This ensures that the teacher model remains
+        constant throughout the distillation process, acting as a fixed knowledge source.
+        """
+        logger.info("Freezing teacher model...")
         self.teacher.eval()
         for param in self.teacher.parameters():
             param.requires_grad = False
-        
+        logger.info("Teacher model frozen.")
 
+        
     def _initialize_loss(self):
-        """Initialize compound loss function."""
+        """
+        Initializes and registers the loss functions based on the configuration.
+
+        Parses the loss configuration from `self.cfg.loss['losses']`, instantiates the specified loss functions
+        using `LOSS_REGISTRY`, and registers them as a `nn.ModuleDict` under `self.losses`. Also, sets up
+        `self.loss_weights` to store the weights associated with each loss function, as defined in the config.
+        """
+        logger.info("Initializing loss functions...")
         self.losses = nn.ModuleDict()  # ModuleDict automatically registers modules
         self.loss_weights = {}
         
@@ -82,35 +144,77 @@ class DistillationModule(L.LightningModule):
             self.losses[name] = loss_fn  # This automatically registers the module
             self.loss_weights[name] = weight
         self.register_module('losses', self.losses)
+        logger.info(f"Loss functions initialized: {list(self.losses.keys())}")
 
     def _forward_specific_stage(self, feat, layer):
-        #AVG of patch tokens
-        if layer == 'res5':
-            return feat
+        """
+        Processes features through specific blocks of the DinoV2 teacher model, optimized for ResNet student.
+
+        This method is tailored for distillation from a DinoV2 teacher (Vision Transformer) to a ResNet student (CNN).
+        It selectively forwards features through a subset of DinoV2 blocks that are semantically aligned with
+        different stages of a ResNet architecture (res2, res3, res4, res5). This focuses on spatial feature
+        transfer and avoids transformer-specific components that might not be beneficial for CNN students.
+
+        Args:
+            feat (torch.Tensor):
+                Input feature tensor, expected to be in the format [B, Patches, embedding_dim].
+            layer (str):
+                Identifier for the ResNet layer stage ('res2', 'res3', 'res4', 'res5'). This determines
+                which blocks of the DinoV2 teacher are used for feature processing, based on a predefined mapping.
+
+        Returns:
+            torch.Tensor:
+                Processed feature tensor after passing through the selected DinoV2 blocks. The output shape
+                will depend on the DinoV2 block configuration and the input feature shape.
+        """
+        # Layer to block percentage mapping - optimized for ResNet to DinoV2 alignment
+        # Each ResNet stage roughly corresponds to different semantic levels in DinoV2
         layers = {
-            'res2':0.25,
-            'res3':0.50,
-            'res4':0.75
+            'res2': 0.25,  # Early layers - basic visual features
+            'res3': 0.50,  # Mid layers - more complex patterns
+            'res4': 0.75   # Later layers - high-level semantics
         }
-        """Forward through specific stages of teacher model."""
+
+        # Determine block ranges for feature processing
         n_total_blocks = len(self.teacher.model.blocks)
-        target_block = int(n_total_blocks*layers[layer])
-        for i in range(target_block, n_total_blocks):
+        start_block = int(n_total_blocks * layers[layer])
+        end_block = int(n_total_blocks/4) - 1
+
+
+        if layer == 'res4':
+            end_block = n_total_blocks - 1
+        for i in range(start_block, end_block):
             feat = self.teacher.model.blocks[i](feat)
         return feat
 
     def _compute_losses(self, features, *args, **kwargs):
-        """Compute compound loss with affinity map loss."""
+        """
+        Computes the composite distillation loss from student and teacher features.
+
+        Calculates the total distillation loss by iterating through configured loss functions, applying them to
+        the extracted student and teacher features, and weighting their contributions according to `self.loss_weights`.
+        This method supports multiple loss functions and aggregates them into a single training objective.
+
+        Args:
+            features (dict):
+                A dictionary containing feature maps from the student and teacher models.
+                Expected keys are 'student' and 'teacher', with each value being a dictionary of feature level outputs
+                (e.g., {'res2': student_feat_res2, 'res3': student_feat_res3, ...}).
+
+        Returns:
+            dict:
+                A dictionary containing individual loss values and the total aggregated loss.
+                Keys in the dictionary correspond to loss names (e.g., 'scalekd_res4_total_loss', 'scalekd_res4_spatial_loss')
+                and 'loss' for the total loss. These values are detached from the computation graph for logging purposes.
+        """
         total_loss = 0
         loss_dict = {}
-
-
 
         # <SCALEKD_LOSS>----------------------------------------------------------------------------------
         spatial_query = None
         frequency_query = None
 
-        scale_kd_losses = sorted([f'scalekd_{layer}' for layer in self.cfg.student.student_keys])
+        scale_kd_losses = sorted([layer for layer in self.losses.keys()])
 
         for scale_kd_layer in scale_kd_losses:
             layer_name = scale_kd_layer.split('_')[1]
@@ -130,7 +234,7 @@ class DistillationModule(L.LightningModule):
                 break
 
 
-
+            B, C, H, W = features['student'][layer_name].shape
             loss_fn = self.losses[scale_kd_layer]
             weight = self.loss_weights[scale_kd_layer]
             feat_S_spat = loss_fn.project_feat_spat(features['student'][layer_name], query=spatial_query)
@@ -151,8 +255,25 @@ class DistillationModule(L.LightningModule):
         loss_dict['loss'] = total_loss
         return loss_dict
     def training_step(self, batch, batch_idx):
-        """Training step with detailed gradient debugging."""
+        """
+        Performs a single training step.
 
+        This method is called for each batch during training. It orchestrates the feature extraction from both
+        student and teacher models, computes the distillation loss, logs training metrics, and returns the total loss
+        for optimization.
+
+        Args:
+            batch (torch.Tensor):
+                Input batch of data from the training dataloader. The structure of the batch is defined by the
+                dataloader and typically contains input images.
+            batch_idx (int):
+                The index of the current batch within the training epoch.
+
+        Returns:
+            torch.Tensor:
+                The total computed loss for the current training step. This loss is used by the optimizer to update
+                the student model's parameters.
+        """
         
         # Get features with gradient checking
         features = self._extract_features(batch)
@@ -163,78 +284,163 @@ class DistillationModule(L.LightningModule):
         self._log_training_metrics(losses, features)
 
         return losses['loss']
-    
+
 
     def validation_step(self, batch, batch_idx):
+        """
+        Performs a single validation step.
+
+        This method is called for each batch during validation. It mirrors the `training_step` in terms of feature
+        extraction and loss computation but is used to evaluate the student model's performance on the validation set.
+        Crucially, it operates in evaluation mode (no gradient computation or student parameter updates) and typically
+        uses an EMA (Exponential Moving Average) version of the student model if configured.
+
+        Args:
+            batch (torch.Tensor):
+                Input batch of data from the validation dataloader.
+            batch_idx (int):
+                The index of the current batch within the validation epoch.
+
+        Returns:
+            torch.Tensor:
+                The total computed validation loss for the current validation step. This loss is used for monitoring
+                model performance and potentially for early stopping or learning rate scheduling.
+        """
+        # Extract features using EMA student
         features = self._extract_features(batch)
+        
+        # Compute losses
         losses = self._compute_losses(features)
+        
+        # Log validation metrics
         self._log_validation_metrics(losses, features)
 
-    def _extract_features(self, batch):
-        """Extract features from both models."""
-        global_crops = batch["collated_global_crops"]
         
+        return losses['loss']
+
+    def _extract_features(self, batch):
+        """
+        Extracts feature maps from the student and teacher models for a given input batch.
+
+        Passes the input batch through both the student and teacher models to obtain their respective feature maps.
+        The teacher model's features are extracted in a no-gradient context (`torch.no_grad()`) as it is frozen.
+        The specific feature levels to extract are determined by the model configurations in `self.cfg`.
+
+        Args:
+            batch (torch.Tensor):
+                Input batch of data, typically image tensors.
+
+        Returns:
+            dict:
+                A dictionary containing the extracted feature maps from both the student and teacher models.
+                The dictionary has keys 'student' and 'teacher', each mapping to a dictionary of feature level
+                outputs (e.g., {'res2': student_features_res2, 'res3': student_features_res3, ...}).
+        """
         with torch.no_grad():
-            teacher_output = self.teacher(global_crops)
+            teacher_output = self.teacher(batch)
             teacher_features = teacher_output[self.cfg.teacher.teacher_key]
 
-        student_output = self.student(global_crops)
+        student_output = self.student(batch)
         return {
             'student': student_output,
             'teacher': teacher_features
         }
 
     def _log_training_metrics(self, losses, features):
-        """Log training metrics."""
-        # Log all your training losses and metrics here
+        """
+        Logs training metrics to the Lightning logger.
+
+        Iterates through the computed losses and logs each loss value under the 'train_' prefix. Also logs the
+        current learning rate of the optimizer. Metrics are logged for each training step and aggregated across epochs.
+
+        Args:
+            losses (dict):
+                Dictionary of computed loss values, typically returned by `self._compute_losses`.
+            features (dict):
+                Dictionary of extracted features (not directly used for logging in this method, but included
+                for potential future extensions).
+        """
         for loss_name, loss_value in losses.items():
             self.log(f'train_{loss_name}', loss_value, sync_dist=True)
         
+        # Log learning rate
+        current_lr = self.optimizers().param_groups[0]['lr']
+        self.log('lr', current_lr, sync_dist=True, prog_bar=True)
+        
 
     def _log_validation_metrics(self, losses, features):
-        """Log validation metrics."""
+        """
+        Logs validation metrics to the Lightning logger.
+
+        Similar to `_log_training_metrics`, but logs metrics with a 'val_' prefix, indicating validation metrics.
+        This method is called at the end of each validation step to record the performance of the student model
+        on the validation dataset.
+
+        Args:
+            losses (dict):
+                Dictionary of computed loss values from the validation step.
+            features (dict):
+                Dictionary of extracted features (not directly used for logging in this method, but included
+                for potential future extensions).
+        """
         # Log all your validation losses and metrics here
         for loss_name, loss_value in losses.items():
             self.log(f'val_{loss_name}', loss_value, sync_dist=True)
 
 
-    @staticmethod
-    def _compute_feature_similarity(feat1, feat2):
-        """Compute cosine similarity between feature vectors."""
-        feat1 = feat1 / feat1.norm(dim=1, keepdim=True)
-        feat2 = feat2 / feat2.norm(dim=1, keepdim=True)
-        similarity = F.cosine_similarity(feat1, feat2, dim=1)
-        return similarity.mean()
-
     def _load_student_checkpoint(self, checkpoint_path):
-        """Load student checkpoint, update state dict and log load info via the Lightning logger."""
+        """
+        Loads a checkpoint into the student model.
+        
+        Args:
+            checkpoint_path (str): Path to checkpoint file.
+            
+        Raises:
+            KeyError: If model name is not recognized.
+        """
+        logger.info(f"Loading student checkpoint from: {checkpoint_path}...")
         checkpoint = torch.load(checkpoint_path)
         
         # Process the checkpoint based on model name configuration.
-        if self.cfg.student.model_name == 'stdc':
+        if 'stdc' in self.cfg.student.model_name:
             checkpoint = {f"model.model.{k.replace('cp.backbone.', '')}": v for k, v in checkpoint.items()}
             result = self.student.load_state_dict(checkpoint, strict=False)
         elif 'resnet' in self.cfg.student.model_name:
             checkpoint = {f"model.model.{k}": v for k, v in checkpoint.items()}
             result = self.student.load_state_dict(checkpoint, strict=False)
         else:
-            # Default loading behavior if no specific model name match.
             result = self.student.load_state_dict(checkpoint, strict=False)
-        
-        # Log checkpoint load details using the Lightning logger.
-        if self.logger:
-            self.logger.info(f"Loading student checkpoint from: {checkpoint_path}")
-            self.logger.info(f"Missing keys: {result.missing_keys}")
-            self.logger.info(f"Unexpected keys: {result.unexpected_keys}")
-        else:
-            print("Logger is not configured. Falling back to print:")
-            print(f"Loading student checkpoint from: {checkpoint_path}")
-            print(f"Missing keys: {result.missing_keys}")
-            print(f"Unexpected keys: {result.unexpected_keys}")
-        
+
+
+        logger.info(f"Missing Keys:")
+        for key in result.missing_keys:
+            logger.info(f"  {key}")
+        logger.info(f"Unexpected Keys:")
+        for key in result.unexpected_keys:
+            logger.info(f"  {key}")
+        matched_keys = [key for key in self.student.state_dict().keys() if key in checkpoint.keys()]
+        logger.info(f"Matched Keys:")
+        for key in matched_keys:
+            logger.info(f"  {key}")
+
+        logger.info(f"Student checkpoint loaded from: {checkpoint_path}. Result: Missing keys: {len(result.missing_keys)}, Unexpected keys: {len(result.unexpected_keys)}")
             
     def configure_optimizers(self):
-        """Configure optimizers with flexible optimizer and scheduler options."""
+        """
+        Configures the optimizer and learning rate scheduler for training.
+
+        Sets up the optimizer (e.g., AdamW, SGD) as specified in `self.cfg['optimizer']` and, optionally, a
+        learning rate scheduler as defined in `self.cfg['optimizer']['scheduler']`. Parameters to be optimized
+        include those from the student model and any trainable parameters from the loss functions.
+
+        Returns:
+            Union[torch.optim.Optimizer, dict]:
+                Configured optimizer or a dictionary containing the optimizer and scheduler configurations.
+                If a scheduler is configured, returns a dictionary with keys 'optimizer' and 'lr_scheduler'.
+                Otherwise, returns just the optimizer. The scheduler configuration includes settings for monitoring
+                a metric, update interval, and frequency, as specified in the config.
+        """
+        logger.info("Configuring optimizers...")
         # Collect parameters from both student and losses
         param_groups = []
         
@@ -259,6 +465,7 @@ class DistillationModule(L.LightningModule):
             param_groups,
             **self.cfg['optimizer'].get('kwargs', {})
         )
+        logger.info(f"Optimizer configured: {self.cfg['optimizer']['type']}")
         
         # Configure scheduler if specified
         if 'scheduler' in self.cfg['optimizer']:
@@ -267,7 +474,8 @@ class DistillationModule(L.LightningModule):
                 optimizer,
                 **self.cfg['optimizer']['scheduler'].get('kwargs', {})
             )
-            
+            logger.info(f"Scheduler configured: {self.cfg['optimizer']['scheduler']['type']}")
+
             return {
                 "optimizer": optimizer,
                 

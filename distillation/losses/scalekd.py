@@ -139,7 +139,6 @@ class ScaleKD(nn.Module):
         # Compute cosine similarity between patches:
         corrs = torch.matmul(patch_features.transpose(1, 2), patch_features)  # shape: [B, H*W, H*W]
         corrs = corrs.reshape(B, H, W, H * W).permute(0, 3, 1, 2)  # reshape to expected format: [B, H*W, H, W]
-        corrs[corrs < 0.2] = 0.0
         return corrs
 
     def compute_weighted_pool(self, maskclip_feats: torch.Tensor, corrs: torch.Tensor) -> torch.Tensor:

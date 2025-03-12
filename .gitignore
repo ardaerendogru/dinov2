@@ -10,7 +10,7 @@ dist/
 
 .vscode/
 **/logs/
-**/checkpoints/
+**/checkpoints**
 distillation_old/
 
 *.pth
@@ -18,3 +18,14 @@ distillation_old/
 *.pkl
 
 **distillation/wandb/**
+
+**distillation/logs**
+**/notebooks/**
+**/testing/**
+**/wandb/**
+
+
+**.txt
+**.pkl
+**.pth
+**.ckpt

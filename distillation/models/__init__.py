@@ -1,2 +1,2 @@
-from .model_wrapper import ModelWrapper
-from .dinov2 import DINOv2ViT
+from .model_zoo import ModelWrapper
+from .backbones.dinov2 import DINOv2ViT
