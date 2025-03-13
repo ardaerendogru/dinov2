@@ -2,7 +2,9 @@ from typing import List, Optional
 import torch.nn as nn
 from .base import BaseModel
 from ..backbones import D2MobileNetV3
+from utils import get_logger
 
+logger = get_logger()
 versions = {
     "mobilenet_v3_small": {"size": "small", "dilated": False},
     "mobilenet_v3_large": {"size": "large", "dilated": False},

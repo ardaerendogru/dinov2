@@ -87,10 +87,7 @@ class D2SwinTransformerWrapper(BaseModel):
         )
 
 
-        self._out_feature_channels = {
-            f"res{i+2}": self.model.num_features[i]
-            for i in range(len(out_features))
-        }
+        self._out_feature_channels = self.model._out_feature_channels
 
     def get_features(self, x):
         return self.model(x)

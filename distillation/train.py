@@ -16,10 +16,10 @@ from models import ModelWrapper
 from train.distillation_module import DistillationModule
 from datasets.CustomDataset import CustomDataModule
 from dinov2.data.augmentations import DataAugmentationDINO
-import tempfile
 import wandb
 from utils import get_logger
 logger = get_logger()
+
 os.environ["NCCL_P2P_DISABLE"] = "1"
 
 
@@ -109,7 +109,6 @@ class DistillationTrainer:
         config.teacher.out_dim = teacher_dims[config.teacher.model_name]
         config.teacher.teacher_key = config.teacher.get('teacher_key', 'feature_map')
         config.teacher.n_patches = [(config.data_transform.global_crops_size[0]//14), (config.data_transform.global_crops_size[1]//14) ]
-        config.student.kwargs = {}
 
         for loss in config.loss.losses:
             if loss.type == 'scalekd':
@@ -185,7 +184,6 @@ class DistillationTrainer:
             model_name=self.cfg['student']['model_name'],
             n_patches=self.cfg.teacher.n_patches,
             target_feature=self.cfg['student']['student_keys'],
-            **self.cfg['student']['kwargs']
         )
         for loss in self.cfg.loss.losses:
             if loss.type == 'scalekd':
@@ -233,7 +231,7 @@ class DistillationTrainer:
 
         wandb_config = OmegaConf.to_container(self.cfg, resolve=True)
         wandb.init(
-            config=wandb_config,  # Log config to wandb
+            config=wandb_config, 
             project=self.cfg.wandb.project,
             name= f'{self.cfg.student.model_name}_{self.cfg.teacher.model_name}' ,
             tags=self.cfg.wandb.tags,
@@ -322,7 +320,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--config',
         type=str,
-        default='config/config.yaml',
+        default='./config/config.yaml',
         help='Path to the config file'
     )
     return parser.parse_args()

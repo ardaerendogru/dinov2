@@ -1,7 +1,7 @@
 from typing import List, Optional
 import torch.nn as nn
 from .base import BaseModel
-from ..backbones import PResNet
+from ..backbones import D2Presnet
 
 versions = {
     "presnet_18": {"depth": 18, "variant": "d"},
@@ -53,7 +53,7 @@ class PResNetWrapper(BaseModel):
         variant = config["variant"]
         
         # Create PResNet model
-        self.model = PResNet(
+        self.model = D2Presnet(
             depth=depth,
             variant=variant,
             num_stages=4,
@@ -64,16 +64,11 @@ class PResNetWrapper(BaseModel):
         )
 
         # Filter feature channels based on out_features
-        self._out_feature_channels = {
-            f"res{i+2}": self.model.out_channels[i]
-            for i in range(len(out_features))
-        }
+        self._out_feature_channels = self.model._out_feature_channels
 
     def get_features(self, x):
-        outs = self.model(x)
-        return {
-            f"res{i+2}": outs[i] for i in range(len(self._out_features))
-        }
+        return self.model(x)
+
     
     @property
     def feature_channels(self):

@@ -13,7 +13,6 @@ from .wrappers.presnet_wrapper import PResNetWrapper
 from .wrappers.swin_wrapper import D2SwinTransformerWrapper
 from .wrappers.timm_wrapper import TimmWrapper
 import torch.nn.functional as F
-import logging
 
 
 class ModelWrapper(nn.Module):
@@ -78,8 +77,6 @@ class ModelWrapper(nn.Module):
         model_name: str,
         n_patches,
         target_feature: list[str] = ['res5', 'res4'],
-        checkpoint_path: Optional[str] = None,
-        **model_kwargs
     ):
         super().__init__()
 
@@ -89,10 +86,7 @@ class ModelWrapper(nn.Module):
             model_id = model_id + '_' + version
         
         self.model = self.MODEL_MAP[model_id](model_name = model_name, out_features = target_feature)
-        
-        # Load checkpoint if specified
-        if checkpoint_path:
-            self.load_checkpoint(checkpoint_path)
+  
         
         self.n_patches = n_patches
         self.target_features = target_feature

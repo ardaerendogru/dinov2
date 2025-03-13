@@ -1,3 +1,9 @@
+wandb:
+  project: "distillation"  # Project name in W&B
+  tags: ["distillation", "convnext", "dinov2"]  # Searchable tags
+  notes: "Knowledge distillation from DINOv2 to convnext"  # Run description
+
+
 student:
   model_name: stdc_2
   student_keys: [res5, res4]
@@ -82,7 +88,3 @@ checkpoints:
   mode: max
   save_top_k: 1
 
-wandb:
-  project: "distillation"  # Project name in W&B
-  tags: ["distillation", "convnext", "dinov2"]  # Searchable tags
-  notes: "Knowledge distillation from DINOv2 to convnext"  # Run description

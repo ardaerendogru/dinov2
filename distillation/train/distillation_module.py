@@ -5,10 +5,8 @@ from torch.cuda.amp import autocast
 import torch.nn as nn
 from losses import ScaleKD
 from utils import get_logger
+import numpy as np
 logger = get_logger()
-
-from copy import deepcopy
-
 
 LOSS_REGISTRY = {
     'scalekd': ScaleKD,
@@ -65,7 +63,6 @@ class DistillationModule(L.LightningModule):
         self.save_hyperparameters(cfg)
         self._initialize_models(student, teacher)
         self._initialize_loss()
-        self.loss_mse = nn.MSELoss(reduction='sum')
         logger.info("DistillationModule initialized.")
 
     def _initialize_models(self, student, teacher):
@@ -86,10 +83,10 @@ class DistillationModule(L.LightningModule):
         self.register_module('student', self.student)
         self.register_module('teacher', self.teacher)
 
-        # Freeze teacher
+        
         self._freeze_teacher()
         
-        # Load checkpoint if specified
+        
         if self.cfg.student.get('checkpoint_path', None):
             self._load_student_checkpoint(self.cfg.student.checkpoint_path)
         logger.info("Models initialized.")
@@ -118,7 +115,7 @@ class DistillationModule(L.LightningModule):
         `self.loss_weights` to store the weights associated with each loss function, as defined in the config.
         """
         logger.info("Initializing loss functions...")
-        self.losses = nn.ModuleDict()  # ModuleDict automatically registers modules
+        self.losses = nn.ModuleDict()  
         self.loss_weights = {}
         
         for loss_spec in self.cfg.loss['losses']:
@@ -126,12 +123,12 @@ class DistillationModule(L.LightningModule):
             weight = loss_spec['weight']
             kwargs = loss_spec['kwargs']
             
-            # Get loss name based on type or kwargs
+            
             name = kwargs.get('name', loss_type)
             
-            # Get loss class from registry and add it to ModuleDict
+            
             loss_fn = LOSS_REGISTRY[loss_type](**kwargs)
-            self.losses[name] = loss_fn  # This automatically registers the module
+            self.losses[name] = loss_fn  
             self.loss_weights[name] = weight
         self.register_module('losses', self.losses)
         logger.info(f"Loss functions initialized: {list(self.losses.keys())}")
@@ -157,15 +154,15 @@ class DistillationModule(L.LightningModule):
                 Processed feature tensor after passing through the selected DinoV2 blocks. The output shape
                 will depend on the DinoV2 block configuration and the input feature shape.
         """
-        # Layer to block percentage mapping - optimized for ResNet to DinoV2 alignment
-        # Each ResNet stage roughly corresponds to different semantic levels in DinoV2
+        
+        
         layers = {
-            'res2': 0.25,  # Early layers - basic visual features
-            'res3': 0.50,  # Mid layers - more complex patterns
-            'res4': 0.75   # Later layers - high-level semantics
+            'res2': 0.25,  
+            'res3': 0.50,  
+            'res4': 0.75   
         }
 
-        # Determine block ranges for feature processing
+        
         n_total_blocks = len(self.teacher.model.blocks)
         start_block = int(n_total_blocks * layers[layer])
         end_block = int(n_total_blocks/4) - 1
@@ -177,7 +174,7 @@ class DistillationModule(L.LightningModule):
             feat = self.teacher.model.blocks[i](feat)
         return feat
 
-    def _compute_losses(self, features, *args, **kwargs):
+    def _compute_losses(self, features):
         """
         Computes the composite distillation loss from student and teacher features.
 
@@ -200,7 +197,7 @@ class DistillationModule(L.LightningModule):
         total_loss = 0
         loss_dict = {}
 
-        # <SCALEKD_LOSS>----------------------------------------------------------------------------------
+        
         spatial_query = None
         frequency_query = None
 
@@ -241,7 +238,7 @@ class DistillationModule(L.LightningModule):
             loss_dict[f'{scale_kd_layer}_spatial_similarity'] =  spatial_similarity
             loss_dict[f'{scale_kd_layer}_frequency_similarity'] = frequency_similarity           
             total_loss += (spatial_loss + frequency_loss )* weight
-        #<SCALEKD_LOSS\>------------------------------------------------------------------------------------------------
+        
         loss_dict['loss'] = total_loss
         return loss_dict
     def training_step(self, batch, batch_idx):
@@ -265,13 +262,13 @@ class DistillationModule(L.LightningModule):
                 the student model's parameters.
         """
         
-        # Get features with gradient checking
+        
         features = self._extract_features(batch)
 
-        # Compute losses with gradient tracking
+        
         losses = self._compute_losses(features)
         
-        self._log_training_metrics(losses, features)
+        self._log_training_metrics(losses)
 
         return losses['loss']
 
@@ -296,14 +293,14 @@ class DistillationModule(L.LightningModule):
                 The total computed validation loss for the current validation step. This loss is used for monitoring
                 model performance and potentially for early stopping or learning rate scheduling.
         """
-        # Extract features using EMA student
+        
         features = self._extract_features(batch)
         
-        # Compute losses
+        
         losses = self._compute_losses(features)
         
-        # Log validation metrics
-        self._log_validation_metrics(losses, features)
+        
+        self._log_validation_metrics(losses)
 
         
         return losses['loss']
@@ -336,7 +333,7 @@ class DistillationModule(L.LightningModule):
             'teacher': teacher_features
         }
 
-    def _log_training_metrics(self, losses, features):
+    def _log_training_metrics(self, losses):
         """
         Logs training metrics to the Lightning logger.
 
@@ -353,12 +350,12 @@ class DistillationModule(L.LightningModule):
         for loss_name, loss_value in losses.items():
             self.log(f'train_{loss_name}', loss_value, sync_dist=True)
         
-        # Log learning rate
+        
         current_lr = self.optimizers().param_groups[0]['lr']
         self.log('lr', current_lr, sync_dist=True, prog_bar=True)
         
 
-    def _log_validation_metrics(self, losses, features):
+    def _log_validation_metrics(self, losses):
         """
         Logs validation metrics to the Lightning logger.
 
@@ -373,7 +370,7 @@ class DistillationModule(L.LightningModule):
                 Dictionary of extracted features (not directly used for logging in this method, but included
                 for potential future extensions).
         """
-        # Log all your validation losses and metrics here
+        
         for loss_name, loss_value in losses.items():
             self.log(f'val_{loss_name}', loss_value, sync_dist=True)
 
@@ -383,22 +380,44 @@ class DistillationModule(L.LightningModule):
         Loads a checkpoint into the student model.
         
         Args:
-            checkpoint_path (str): Path to checkpoint file.
+            checkpoint_path (str): Path to checkpoint file (.pkl or .pth).
             
         Raises:
             KeyError: If model name is not recognized.
+            ValueError: If file format is not supported.
         """
         logger.info(f"Loading student checkpoint from: {checkpoint_path}...")
-        checkpoint = torch.load(checkpoint_path)
         
-        # Process the checkpoint based on model name configuration.
-        if 'stdc' in self.cfg.student.model_name:
+        if checkpoint_path.endswith('.pkl'):
+            import pickle
+            with open(checkpoint_path, 'rb') as f:
+                checkpoint = pickle.load(f)
+                checkpoint = checkpoint['model']
+        elif checkpoint_path.endswith('.pth'):
+            checkpoint = torch.load(checkpoint_path)
+        else:
+            raise ValueError(f"Unsupported checkpoint format: {checkpoint_path}")
+        
+        for k, v in checkpoint.items():
+            if isinstance(v, np.ndarray):
+                checkpoint[k] = torch.from_numpy(v)
+        student_type = self.cfg.student.model_name.split('_')[0].lower()
+
+        if student_type == 'mobilenet':
+            version = self.cfg.student.model_name.split('_')[1].lower()
+            student_type = student_type + '_' + version
+
+        if 'stdc' == student_type:
             checkpoint = {f"model.model.{k.replace('cp.backbone.', '')}": v for k, v in checkpoint.items()}
             result = self.student.load_state_dict(checkpoint, strict=False)
-        elif 'resnet' in self.cfg.student.model_name:
-            checkpoint = {f"model.model.{k}": v for k, v in checkpoint.items()}
+        elif 'mit' == student_type or 'darknet' == student_type or 'mobilenet_v2' == student_type or student_type == 'presnet':
+            checkpoint = {f"model.model.{k.replace('backbone.', '')}": v for k, v in checkpoint.items()}
+            result = self.student.load_state_dict(checkpoint, strict=False)
+        elif student_type == 'mobilenet_v3':
+            checkpoint = {f"model.model.{k.replace('backbone.', '')}": v for k, v in checkpoint.items() if 'classifier' not in k}
             result = self.student.load_state_dict(checkpoint, strict=False)
         else:
+            checkpoint = {f"model.model.{k}": v for k, v in checkpoint.items()}
             result = self.student.load_state_dict(checkpoint, strict=False)
 
 
@@ -431,25 +450,25 @@ class DistillationModule(L.LightningModule):
                 a metric, update interval, and frequency, as specified in the config.
         """
         logger.info("Configuring optimizers...")
-        # Collect parameters from both student and losses
+        
         param_groups = []
         
-        # Student parameters
+        
         student_params = list(self.student.parameters())
         param_groups.append({
             'params': student_params,
             'name': 'student'
         })
         
-        # Loss function parameters
+        
         for loss_name, loss_module in self.losses.items():
             loss_params = list(loss_module.parameters())
-            if loss_params:  # Only add if there are parameters
+            if loss_params:  
                 param_groups.append({
                     'params': loss_params,
                     'name': f'loss_{loss_name}'
                 })
-                # print(f"Added {len(loss_params)} parameters from {loss_name} loss")
+                
 
         optimizer = getattr(torch.optim, self.cfg['optimizer']['type'])(
             param_groups,
@@ -457,7 +476,7 @@ class DistillationModule(L.LightningModule):
         )
         logger.info(f"Optimizer configured: {self.cfg['optimizer']['type']}")
         
-        # Configure scheduler if specified
+        
         if 'scheduler' in self.cfg['optimizer']:
             scheduler = getattr(torch.optim.lr_scheduler, 
                             self.cfg['optimizer']['scheduler']['type'])(
