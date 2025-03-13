@@ -10,7 +10,8 @@ dist/
 
 .vscode/
 **/logs/
-**/checkpoints/**
+**/checkpoints/*
+!**/checkpoints/.gitkeep
 distillation_old/
 
 *.pth
