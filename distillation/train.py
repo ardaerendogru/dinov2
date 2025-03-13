@@ -15,7 +15,7 @@ from models.backbones import DINOv2ViT
 from models import ModelWrapper
 from train.distillation_module import DistillationModule
 from datasets.CustomDataset import CustomDataModule
-from dinov2.data.augmentations import DataAugmentationDINO
+from datasets.augmentations import DataAugmentationDINO
 import wandb
 from utils import get_logger
 logger = get_logger()
